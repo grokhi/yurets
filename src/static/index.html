@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Юрец ФМ</title>
+  <style>
+    body {
+      font-family: "Times New Roman", Times, serif;
+      background: PeachPuff;
+      color: black;
+      margin: 56px 24px 24px 56px;
+    }
+    h1 {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 32px;
+      margin: 0 0 12px 0;
+      font-weight: bold;
+    }
+    .row { margin: 0 0 10px 0; }
+    .label { font-weight: bold; }
+    audio {
+      display: block;
+      margin-top: 6px;
+    }
+    footer {
+      margin-top: 28px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Юрец ФМ</h1>
+
+  <div class="row">
+    <span class="label">Текущий трек:</span>
+    <span id="now-playing">(загрузка...)</span>
+  </div>
+
+  <div class="row">
+    <audio id="player" controls autoplay src="/stream"></audio>
+  </div>
+
+  <footer>
+    Powered by sovbak yeback experience.
+  </footer>
+
+  <script>
+    (function () {
+      function renderNowPlaying(data) {
+        var parts = [];
+        if (data && data.title) parts.push(data.title);
+        if (data && data.source) parts.push("Источник: " + data.source);
+        if (data && data.duration_seconds) parts.push("Длительность ~" + data.duration_seconds + "s");
+        document.getElementById("now-playing").textContent = parts.join(" | ") || "(нет данных)";
+      }
+
+      async function poll() {
+        try {
+          var res = await fetch("/api/now-playing", { cache: "no-store" });
+          var data = await res.json();
+          renderNowPlaying(data);
+        } catch (e) {
+          document.getElementById("now-playing").textContent = "(ошибка запроса)";
+        }
+      }
+
+      poll();
+      setInterval(poll, 5000);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "yurets-fm"
+version = "0.1.0"
+description = "Minimalist internet radio prototype \"Юрец ФМ\""
+authors = ["You <you@example.com>"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.6"
+uvicorn = { extras = ["standard"], version = "^0.32.1" }
+pydantic = "^2.10.4"
+pydantic-settings = "^2.7.0"
+aiofiles = "^24.1.0"
+telethon = "^1.38.1"
+mutagen = "^1.47.0"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.8.4"
+
+[tool.ruff]
+line-length = 100
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
