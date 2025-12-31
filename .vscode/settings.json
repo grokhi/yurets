@@ -1,6 +1,10 @@
 {
   "python.defaultInterpreterPath": ".venv/bin/python",
 
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportUnusedFunction": "none"
+  },
+
   "[python]": {
     "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.formatOnSave": true

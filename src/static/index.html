@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <title>Юрец ФМ</title>
+  <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml" />
+  <link rel="icon" href="/static/favicon.svg?v=2" sizes="any" />
   <style>
     body {
       font-family: "Times New Roman", Times, serif;
@@ -37,7 +39,7 @@
   </div>
 
   <div class="row">
-    <audio id="player" controls autoplay src="/stream"></audio>
+    <audio id="player" controls autoplay></audio>
   </div>
 
   <footer>
@@ -46,6 +48,17 @@
 
   <script>
     (function () {
+      // /stream — бесконечный запрос. В некоторых браузерах, если стартовать его слишком рано,
+      // во вкладке остаётся индикатор "загрузки" вместо favicon.
+      // Поэтому стартуем стрим после window.load.
+      var player = document.getElementById("player");
+      window.addEventListener("load", function () {
+        player.src = "/stream";
+        if (player.play) {
+          player.play().catch(function () {});
+        }
+      });
+
       function renderNowPlaying(data) {
         var parts = [];
         if (data && data.title) parts.push(data.title);

@@ -53,9 +53,7 @@ class Streamer:
                 )
             )
 
-            async for chunk in source.stream_track(
-                track, chunk_size=self._settings.chunk_size
-            ):
+            async for chunk in source.stream_track(track, chunk_size=self._settings.chunk_size):
                 yield chunk
 
             # маленькая пауза между треками, чтобы не "крутить" цикл на пустом месте
