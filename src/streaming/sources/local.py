@@ -32,18 +32,22 @@ class LocalLibrarySource:
     async def next_track(self, mime_type: str) -> TrackRef:
         self._refresh_cache_if_needed(mime_type=mime_type)
         if not self._cache:
-            raise RuntimeError(f"No audio files found in {self._music_dir}")
+            if not self._music_dir.exists():
+                raise RuntimeError(
+                    f"Music directory does not exist: {self._music_dir}. "
+                    "If you're running in Docker, only mounted paths are visible inside the container "
+                    "(by default ./music -> /music)."
+                )
+            raise RuntimeError(
+                f"No audio files found in {self._music_dir} (expected .mp3, or .ogg/.opus for audio/ogg)"
+            )
 
         path = random.choice(self._cache)
         title = path.stem
         duration = _try_duration_seconds(path)
-        return TrackRef(
-            title=title, duration_seconds=duration, ref=_LocalTrack(path=path)
-        )
+        return TrackRef(title=title, duration_seconds=duration, ref=_LocalTrack(path=path))
 
-    async def stream_track(
-        self, track: TrackRef, chunk_size: int
-    ) -> AsyncIterator[bytes]:
+    async def stream_track(self, track: TrackRef, chunk_size: int) -> AsyncIterator[bytes]:
         local: _LocalTrack = track.ref  # type: ignore[assignment]
         async with aiofiles.open(local.path, "rb") as f:
             while True:

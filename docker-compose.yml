@@ -6,6 +6,6 @@ services:
     env_file:
       - .env
     volumes:
-      - ./music:/music:ro
+      - /Users/grokhi/Music:/music:ro
       - ./telegram_session:/telegram_session
     restart: unless-stopped

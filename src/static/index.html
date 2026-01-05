@@ -25,6 +25,9 @@
       display: block;
       margin-top: 6px;
     }
+    #schedule {
+      white-space: pre-line;
+    }
     footer {
       /* font-weight: bold; */
       position: fixed;
@@ -47,6 +50,11 @@
 
   <div class="row">
     <audio id="player" controls autoplay></audio>
+  </div>
+
+  <div class="row">
+    <span class="label">Расписание:</span>
+    <div id="schedule">(загрузка...)</div>
   </div>
 
   <footer>
@@ -74,6 +82,38 @@
         document.getElementById("now-playing").textContent = parts.join(" | ") || "(нет данных)";
       }
 
+      function hhmm(value) {
+        if (!value) return "";
+        return String(value).slice(0, 5);
+      }
+
+      function renderSchedule(data) {
+        try {
+          var slots = (data && data.slots) || [];
+          if (!slots.length) {
+            document.getElementById("schedule").textContent = "(нет расписания)";
+            return;
+          }
+
+          var lines = slots.map(function (s) {
+            return hhmm(s.start) + "–" + hhmm(s.end) + " — " + (s.source || "");
+          });
+          document.getElementById("schedule").textContent = lines.join("\n");
+        } catch (e) {
+          document.getElementById("schedule").textContent = "(ошибка расписания)";
+        }
+      }
+
+      async function loadSchedule() {
+        try {
+          var res = await fetch("/api/schedule", { cache: "no-store" });
+          var data = await res.json();
+          renderSchedule(data);
+        } catch (e) {
+          document.getElementById("schedule").textContent = "(ошибка запроса)";
+        }
+      }
+
       async function poll() {
         try {
           var res = await fetch("/api/now-playing", { cache: "no-store" });
@@ -85,6 +125,7 @@
       }
 
       poll();
+      loadSchedule();
       setInterval(poll, 5000);
     })();
   </script>

@@ -32,7 +32,7 @@ poetry install
 2) Подготовьте env-файл для дебага:
 
 - Скопируйте `.env.example` в `src/.env` (он используется как `envFile` в `launch.json`)
-- При необходимости поправьте пути (например `YURETS_LOCAL_MUSIC_DIR`)
+- При необходимости поправьте пути в `YURETS_SCHEDULE_JSON` (поле `key`)
 
 3) Запустите конфигурацию **Run and Debug → agent**.
 
@@ -47,8 +47,8 @@ poetry install
 
 Сейчас реализованы два источника:
 
-1) **local** — локальная папка с музыкой (`YURETS_LOCAL_MUSIC_DIR`)
-2) **telegram** — один Telegram-канал (архитектурно готово к нескольким)
+1) **local** — локальная папка с музыкой (задаётся в расписании через `key`)
+2) **telegram** — Telegram-канал выбирается через `key` в расписании
 
 ### Telegram настройки
 
@@ -56,7 +56,6 @@ poetry install
 
 - `YURETS_TELEGRAM_API_ID`
 - `YURETS_TELEGRAM_API_HASH`
-- `YURETS_TELEGRAM_CHANNEL`
 
 Сессия Telethon хранится в `YURETS_TELEGRAM_SESSION` (в docker-compose монтируется `./telegram_session`).
 
@@ -81,8 +80,16 @@ poetry run python -m src.telegram_login --api-id <API_ID> --api-hash <API_HASH> 
 Пример:
 
 ```env
-YURETS_SCHEDULE_JSON=[{"start":"00:00","end":"08:00","source":"telegram"},{"start":"08:00","end":"18:00","source":"local"},{"start":"18:00","end":"00:00","source":"telegram"}]
+YURETS_SCHEDULE_JSON=[
+	{"start":"00:00","end":"12:00","source":"telegram","key":"@some_tg_chan"},
+	{"start":"12:00","end":"00:00","source":"local","key":"/path/to/music"}
+]
 ```
+
+Поле `key`:
+
+- для `source="telegram"` — канал (`@channelname` или `-100...`)
+- для `source="local"` — путь к папке с музыкой
 
 Источник выбирается между треками (не посреди одного файла).
 
