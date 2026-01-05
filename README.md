@@ -56,10 +56,23 @@ poetry install
 
 - `YURETS_TELEGRAM_API_ID`
 - `YURETS_TELEGRAM_API_HASH`
-- `YURETS_TELEGRAM_BOT_TOKEN` (рекомендуется для Docker)
 - `YURETS_TELEGRAM_CHANNEL`
 
 Сессия Telethon хранится в `YURETS_TELEGRAM_SESSION` (в docker-compose монтируется `./telegram_session`).
+
+#### Режим без бота (user session)
+
+Можно не использовать `YURETS_TELEGRAM_BOT_TOKEN` и авторизоваться как пользователь (один раз, интерактивно), чтобы создать `.session` файл.
+
+1) Запусти локально (в терминале):
+
+```bash
+poetry run python -m src.telegram_login --api-id <API_ID> --api-hash <API_HASH> --session ./telegram_session/yurets_fm.session
+```
+
+2) Дальше Docker будет использовать этот файл автоматически (папка `./telegram_session` уже монтируется в контейнер).
+
+Важно: без заранее созданной сессии Telethon будет пытаться спросить телефон/код, а в Docker stdin нет — поэтому Telegram-источник будет пропущен и произойдёт fallback на локальную музыку.
 
 ## Расписание вещания
 

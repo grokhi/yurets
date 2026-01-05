@@ -22,7 +22,7 @@ class Streamer:
         self.telegram_source = TelegramChannelSource(settings=settings.telegram())
 
     async def startup(self) -> None:
-        if self.telegram_source.enabled():
+        if self.telegram_source.configured():
             await self.telegram_source.startup()
 
     async def shutdown(self) -> None:

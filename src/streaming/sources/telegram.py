@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import sys
 import time as time_module
 from dataclasses import dataclass
 from typing import AsyncIterator
@@ -26,29 +27,46 @@ class TelegramChannelSource:
         self._candidates: list[TrackRef] = []
         self._cache_ts: float = 0.0
 
+    def configured(self) -> bool:
+        return bool(self._settings.api_id and self._settings.api_hash and self._settings.channel)
+
     async def startup(self) -> None:
-        if not self._settings.api_id or not self._settings.api_hash:
+        if not self.configured():
             return
 
-        self._client = TelegramClient(
+        client = TelegramClient(
             self._settings.session, self._settings.api_id, self._settings.api_hash
         )
 
+        # 1) Bot auth (non-interactive)
         if self._settings.bot_token:
-            await self._client.start(bot_token=self._settings.bot_token)
-        else:
-            # Без bot token Telethon обычно просит интерактивный логин.
-            # Для прототипа в Docker рекомендуется использовать bot token.
-            await self._client.start()
+            await client.start(bot_token=self._settings.bot_token)
+            self._client = client
+            return
+
+        # 2) User session auth.
+        # If a valid session already exists, Telethon won't need to prompt.
+        # If not authorized yet and stdin is not interactive (e.g. Docker), skip Telegram.
+        await client.connect()
+        if await client.is_user_authorized():
+            self._client = client
+            return
+
+        if not sys.stdin.isatty():
+            await client.disconnect()
+            return
+
+        # Interactive login (phone + code). Use `python -m src.telegram_login` once.
+        await client.start()
+        self._client = client
 
     async def shutdown(self) -> None:
         if self._client is not None:
             await self._client.disconnect()
+            self._client = None
 
     def enabled(self) -> bool:
-        return bool(
-            self._settings.api_id and self._settings.api_hash and self._settings.channel
-        )
+        return bool(self.configured() and self._client is not None)
 
     async def next_track(self, mime_type: str) -> TrackRef:
         if not self.enabled() or self._client is None:
@@ -60,9 +78,7 @@ class TelegramChannelSource:
 
         return random.choice(self._candidates)
 
-    async def stream_track(
-        self, track: TrackRef, chunk_size: int
-    ) -> AsyncIterator[bytes]:
+    async def stream_track(self, track: TrackRef, chunk_size: int) -> AsyncIterator[bytes]:
         tg: _TelegramTrack = track.ref  # type: ignore[assignment]
         async for chunk in tg.client.iter_download(tg.media, chunk_size=chunk_size):
             if not chunk:
@@ -95,9 +111,7 @@ class TelegramChannelSource:
             if getattr(msg, "audio", None) is not None:
                 duration = getattr(msg.audio, "duration", None)
 
-            title = name or (
-                getattr(msg, "message", None) or f"Telegram track {msg.id}"
-            )
+            title = name or (getattr(msg, "message", None) or f"Telegram track {msg.id}")
             candidates.append(
                 TrackRef(
                     title=title,
