@@ -167,10 +167,7 @@ class TelegramChannelSource:
             if not any(name.lower().endswith(ext) for ext in exts):
                 continue
 
-            duration = None
-            if getattr(msg, "audio", None) is not None:
-                duration = getattr(msg.audio, "duration", None)
-
+            duration = _extract_duration_seconds(msg)
             byte_size = getattr(getattr(msg, "file", None), "size", None)
 
             title = name or (getattr(msg, "message", None) or f"Telegram track {msg.id}")
@@ -193,3 +190,42 @@ def _extensions_for_mime(mime_type: str) -> set[str]:
     if mime_type == "audio/ogg":
         return {".ogg", ".opus"}
     return {".mp3"}
+
+
+def _extract_duration_seconds(msg: Any) -> int | None:
+    """Best-effort duration extraction for Telegram audio documents.
+
+    Telethon exposes duration inconsistently depending on the media type:
+    - msg.file.duration (often present)
+    - msg.audio.duration (sometimes present)
+    - msg.document.attributes[*].duration (DocumentAttributeAudio)
+    """
+
+    def _as_pos_int(v: Any) -> int | None:
+        if isinstance(v, bool):
+            return None
+        if isinstance(v, (int, float)):
+            iv = int(v)
+            return iv if iv > 0 else None
+        return None
+
+    # 1) Most common: file wrapper
+    d = _as_pos_int(getattr(getattr(msg, "file", None), "duration", None))
+    if d is not None:
+        return d
+
+    # 2) Audio wrapper
+    d = _as_pos_int(getattr(getattr(msg, "audio", None), "duration", None))
+    if d is not None:
+        return d
+
+    # 3) Document attributes (DocumentAttributeAudio)
+    doc = getattr(msg, "document", None) or getattr(getattr(msg, "media", None), "document", None)
+    attrs = getattr(doc, "attributes", None)
+    if isinstance(attrs, list):
+        for a in cast(list[Any], attrs):
+            d = _as_pos_int(getattr(a, "duration", None))
+            if d is not None:
+                return d
+
+    return None
