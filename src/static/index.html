@@ -156,7 +156,12 @@
         try {
           var d = new Date(String(iso));
           if (!isFinite(d.getTime())) return "";
-          return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          return d.toLocaleTimeString("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+            hourCycle: "h23",
+          });
         } catch (e) {
           return "";
         }
@@ -172,10 +177,9 @@
 
           var lines = slots.map(function (s) {
             if (s && s.start_at && s.end_at) {
-              return hhmmFromIso(s.start_at) + "–" + hhmmFromIso(s.end_at) + " — " + (s.source || "");
-            }
-            // fallback (legacy)
-            return String(s.start || "").slice(0, 5) + "–" + String(s.end || "").slice(0, 5) + " — " + (s.source || "");
+              return hhmmFromIso(s.start_at) + " - " + hhmmFromIso(s.end_at) + " | " + (s.source || "");
+            }            
+            return "(неизвестный слот)";
           });
           document.getElementById("schedule").textContent = lines.join("\n");
         } catch (e) {

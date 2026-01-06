@@ -416,13 +416,24 @@ class Streamer:
             rng_copy.setstate(live_rng.getstate())
 
             tracks: list[str] = []
+            seen: set[str] = set()
             err: str | None = None
             try:
-                for _ in range(max(0, int(count_per_slot))):
+                want = max(0, int(count_per_slot))
+                # Random choice is with replacement; to present a usable "queue" we
+                # skip duplicates and try a few extra draws.
+                max_attempts = max(want + 20, want * 10)
+                for _ in range(max_attempts):
                     tr = await source.next_track(
                         mime_type=self._settings.stream_mime_type, rng=rng_copy
                     )
-                    tracks.append(tr.title)
+                    title = tr.title
+                    if title in seen:
+                        continue
+                    seen.add(title)
+                    tracks.append(title)
+                    if len(tracks) >= want:
+                        break
             except Exception as exc:
                 err = str(exc)
 
@@ -482,15 +493,23 @@ class Streamer:
             current_title = current.title if current is not None else None
 
             tracks: list[str] = []
-            # Generate a few extra, then drop current title if present.
-            for _ in range(max(0, int(count)) + 5):
+            seen: set[str] = set()
+            if current_title:
+                seen.add(str(current_title))
+
+            want = max(0, int(count))
+            # Generate extra to avoid duplicates.
+            max_attempts = max(want + 20, want * 10)
+            for _ in range(max_attempts):
                 tr = await source.next_track(
                     mime_type=self._settings.stream_mime_type, rng=rng_copy
                 )
-                if current_title and tr.title == current_title:
+                title = tr.title
+                if title in seen:
                     continue
-                tracks.append(tr.title)
-                if len(tracks) >= int(count):
+                seen.add(title)
+                tracks.append(title)
+                if len(tracks) >= want:
                     break
 
             return {
