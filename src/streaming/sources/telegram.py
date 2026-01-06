@@ -63,7 +63,7 @@ class TelegramSession:
             return
 
         if not sys.stdin.isatty():
-            await client.disconnect()
+            await client.disconnect()  # type: ignore[misc]
             return
 
         # Interactive login (phone + code). Use `python -m src.telegram_login` once.
@@ -72,7 +72,7 @@ class TelegramSession:
 
     async def shutdown(self) -> None:
         if self._client is not None:
-            await self._client.disconnect()
+            await self._client.disconnect()  # type: ignore[misc]
             self._client = None
         self._channel_labels.clear()
 
@@ -127,7 +127,7 @@ class TelegramChannelSource:
     async def display_name(self) -> str:
         return await self._session.display_name(self._channel)
 
-    async def next_track(self, mime_type: str) -> TrackRef:
+    async def next_track(self, mime_type: str, rng: random.Random | None = None) -> TrackRef:
         if not self.enabled():
             raise RuntimeError("Telegram session is not configured")
         if not self._channel:
@@ -137,7 +137,8 @@ class TelegramChannelSource:
         if not self._candidates:
             raise RuntimeError("No suitable audio messages found in Telegram channel")
 
-        return random.choice(self._candidates)
+        chooser = rng or random
+        return chooser.choice(self._candidates)
 
     async def stream_track(self, track: TrackRef, chunk_size: int) -> AsyncIterator[bytes]:
         tg: _TelegramTrack = track.ref  # type: ignore[assignment]
@@ -170,6 +171,8 @@ class TelegramChannelSource:
             if getattr(msg, "audio", None) is not None:
                 duration = getattr(msg.audio, "duration", None)
 
+            byte_size = getattr(getattr(msg, "file", None), "size", None)
+
             title = name or (getattr(msg, "message", None) or f"Telegram track {msg.id}")
             candidates.append(
                 TrackRef(
@@ -177,6 +180,7 @@ class TelegramChannelSource:
                     duration_seconds=(
                         int(duration) if isinstance(duration, (int, float)) else None
                     ),
+                    byte_size=(int(byte_size) if isinstance(byte_size, (int, float)) else None),
                     ref=_TelegramTrack(client=client, media=msg.media),
                 )
             )

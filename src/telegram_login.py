@@ -9,6 +9,8 @@ from pathlib import Path
 from telethon import TelegramClient
 from telethon.errors import ApiIdInvalidError
 
+# pyright: reportMissingTypeStubs=false
+
 
 def _required_int(value: str, name: str) -> int:
     try:
@@ -70,7 +72,7 @@ async def _amain() -> None:
     print(f"Session file: {session_path}")
 
     try:
-        await client.start()  # interactive user login
+        await client.start()  # pyright: ignore[reportGeneralTypeIssues]
     except ApiIdInvalidError as exc:
         raise SystemExit(
             "Telegram rejected api_id/api_hash (ApiIdInvalidError).\n"
@@ -85,7 +87,7 @@ async def _amain() -> None:
     uid = getattr(me, "id", None)
     print(f"Authorized. user={username!r} id={uid!r}")
 
-    await client.disconnect()
+    await client.disconnect()  # pyright: ignore[reportGeneralTypeIssues]
 
 
 def main() -> None:
