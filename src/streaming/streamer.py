@@ -6,6 +6,7 @@ import logging
 import random
 import re
 import time as time_module
+from collections import deque
 from collections.abc import AsyncIterator
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -44,6 +45,10 @@ class Streamer:
 
         self._current_day: date | None = None
         self._slot_rngs: dict[tuple[str, str], random.Random] = {}
+
+        # No-repeat window within a day (radio-like behavior).
+        self._no_repeat_window = 50
+        self._recent_titles: deque[str] = deque()
 
         self._track_started_at: float | None = None
 
@@ -180,11 +185,7 @@ class Streamer:
                 if slot is None:
                     raise RuntimeError("Schedule is empty")
 
-                # reset daily RNGs on day change
-                today = datetime.now(self._schedule_tz).date()
-                if self._current_day != today:
-                    self._current_day = today
-                    self._slot_rngs.clear()
+                self._ensure_day_state()
 
                 if slot.source == "telegram":
                     channel = (slot.key or "").strip()
@@ -217,7 +218,8 @@ class Streamer:
                 else:
                     raise RuntimeError(f"Unknown source: {slot.source!r}")
 
-                track = await source.next_track(mime_type=self._settings.stream_mime_type, rng=rng)
+                track = await self._pick_next_track_no_repeat(source=source, rng=rng)
+                self._remember_played(track.title)
 
                 self._track_started_at = time_module.monotonic()
 
@@ -384,10 +386,7 @@ class Streamer:
         Uses a copy of each slot RNG state so the live stream is not affected.
         """
 
-        today = datetime.now(self._schedule_tz).date()
-        if self._current_day != today:
-            self._current_day = today
-            self._slot_rngs.clear()
+        self._ensure_day_state()
 
         out: list[dict[str, object]] = []
         for slot in self._settings.schedule():
@@ -463,6 +462,8 @@ class Streamer:
         if slot is None:
             return {"slot": None, "tracks": [], "error": "schedule is empty"}
 
+        self._ensure_day_state()
+
         slot_key = (slot.key or "").strip()
         try:
             if slot.source == "telegram":
@@ -493,7 +494,8 @@ class Streamer:
             current_title = current.title if current is not None else None
 
             tracks: list[str] = []
-            seen: set[str] = set()
+            # Match live no-repeat behavior for the next picks.
+            seen: set[str] = set(self._recent_titles)
             if current_title:
                 seen.add(str(current_title))
 
@@ -534,6 +536,49 @@ class Streamer:
                 "tracks": [],
                 "error": str(exc),
             }
+
+    def _ensure_day_state(self) -> None:
+        today = datetime.now(self._schedule_tz).date()
+        if self._current_day != today:
+            self._current_day = today
+            self._slot_rngs.clear()
+            self._recent_titles.clear()
+
+    def _remember_played(self, title: str) -> None:
+        if not title:
+            return
+        self._recent_titles.append(title)
+        while len(self._recent_titles) > int(self._no_repeat_window):
+            try:
+                self._recent_titles.popleft()
+            except Exception:
+                break
+
+    async def _pick_next_track_no_repeat(self, source: Any, rng: random.Random) -> Any:
+        """Pick a track trying to avoid repeats within the day window."""
+
+        avoid: set[str] = set(self._recent_titles)
+
+        # Also avoid immediately replaying the currently playing title.
+        current = await self.now_playing.get()
+        if current is not None and current.title:
+            avoid.add(str(current.title))
+
+        last = None
+        # Try a bounded number of times to find a non-repeated title.
+        # If the pool is small, we'll fall back to whatever we got.
+        for _ in range(250):
+            tr = await source.next_track(mime_type=self._settings.stream_mime_type, rng=rng)
+            last = tr
+            if not getattr(tr, "title", None):
+                return tr
+            if tr.title not in avoid:
+                return tr
+
+        # Fallback: accept a repeat.
+        if last is None:
+            return await source.next_track(mime_type=self._settings.stream_mime_type, rng=rng)
+        return last
 
     def _broadcast(self, chunk: bytes) -> None:
         # Protect memory: if a subscriber is slow, drop the subscriber.
@@ -629,7 +674,7 @@ class Streamer:
         if rng is not None:
             return rng
 
-        seed = self._stable_seed(str(day.isoformat()), slot_source, key)
+        seed = self._stable_seed(str(day.isoformat()), slot_source, key, key)
         rng = random.Random(seed)
         self._slot_rngs[cache_key] = rng
         return rng
