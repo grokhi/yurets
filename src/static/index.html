@@ -148,13 +148,18 @@
         var parts = [];
         if (data && data.title) parts.push(esc(data.title));
         if (data && data.source) parts.push("<b>Источник:</b> " + esc(data.source));
-        if (data && data.duration_seconds) parts.push("Длительность ~" + esc(data.duration_seconds) + "s");
         document.getElementById("now-playing").innerHTML = parts.join(" | ") || "(нет данных)";
       }
 
-      function hhmm(value) {
-        if (!value) return "";
-        return String(value).slice(0, 5);
+      function hhmmFromIso(iso) {
+        if (!iso) return "";
+        try {
+          var d = new Date(String(iso));
+          if (!isFinite(d.getTime())) return "";
+          return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        } catch (e) {
+          return "";
+        }
       }
 
       function renderSchedule(data) {
@@ -166,7 +171,11 @@
           }
 
           var lines = slots.map(function (s) {
-            return hhmm(s.start) + "–" + hhmm(s.end) + " — " + (s.source || "");
+            if (s && s.start_at && s.end_at) {
+              return hhmmFromIso(s.start_at) + "–" + hhmmFromIso(s.end_at) + " — " + (s.source || "");
+            }
+            // fallback (legacy)
+            return String(s.start || "").slice(0, 5) + "–" + String(s.end || "").slice(0, 5) + " — " + (s.source || "");
           });
           document.getElementById("schedule").textContent = lines.join("\n");
         } catch (e) {
@@ -194,57 +203,10 @@
         }
       }
 
-      function parseMinutes(isoTime) {
-        // accepts "HH:MM" or "HH:MM:SS"
-        if (!isoTime) return null;
-        var s = String(isoTime);
-        var hh = parseInt(s.slice(0, 2), 10);
-        var mm = parseInt(s.slice(3, 5), 10);
-        if (isNaN(hh) || isNaN(mm)) return null;
-        return hh * 60 + mm;
-      }
-
-      function inSlot(nowMin, startMin, endMin) {
-        if (startMin === null || endMin === null) return false;
-        if (startMin === endMin) return true; // whole day
-        if (startMin < endMin) return nowMin >= startMin && nowMin < endMin;
-        // wraps over midnight
-        return nowMin >= startMin || nowMin < endMin;
-      }
-
       function renderQueue(master) {
         try {
-          var preview = (master && master.preview) || [];
-          if (!preview.length) {
-            document.getElementById("queue").textContent = "(нет данных)";
-            return;
-          }
-
-          var now = new Date();
-          var nowMin = now.getHours() * 60 + now.getMinutes();
-
-          var chosen = null;
-          for (var i = 0; i < preview.length; i++) {
-            var slot = preview[i] && preview[i].slot;
-            if (!slot) continue;
-            var startMin = parseMinutes(slot.start);
-            var endMin = parseMinutes(slot.end);
-            if (inSlot(nowMin, startMin, endMin)) {
-              chosen = preview[i];
-              break;
-            }
-          }
-          if (!chosen) chosen = preview[0];
-
-          var slot2 = chosen.slot || {};
-          var tracks = (chosen.tracks || []).slice(0);
-          var currentTitle = master && master.now_playing && master.now_playing.title;
-          if (currentTitle) {
-            tracks = tracks.filter(function (t) {
-              return String(t) !== String(currentTitle);
-            });
-          }
-
+          var queue = master && master.queue;
+          var tracks = (queue && queue.tracks) || [];
           tracks = tracks.slice(0, 5);
           if (!tracks.length) {
             document.getElementById("queue").textContent = "(пусто)";
@@ -263,7 +225,7 @@
 
       async function pollMaster() {
         try {
-          var res = await fetch("/api/master?count=30", { cache: "no-store" });
+          var res = await fetch("/api/master?count=30&queue_count=5", { cache: "no-store" });
           var data = await res.json();
           renderQueue(data);
         } catch (e) {

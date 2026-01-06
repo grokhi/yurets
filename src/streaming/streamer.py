@@ -7,9 +7,10 @@ import random
 import re
 import time as time_module
 from collections.abc import AsyncIterator
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from src.models.now_playing import NowPlaying
 from src.services.now_playing import NowPlayingState
@@ -28,6 +29,8 @@ _SENTINEL = object()
 class Streamer:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        self._schedule_tz_name = settings.schedule_timezone()
+        self._schedule_tz = self._build_tz(self._schedule_tz_name)
         self.now_playing = NowPlayingState()
         self.scheduler = Scheduler(slots=settings.schedule())
 
@@ -106,7 +109,21 @@ class Streamer:
         await self.telegram_session.shutdown()
 
     def _choose_slot(self):
-        return self.scheduler.choose_slot(datetime.now())
+        return self.scheduler.choose_slot(datetime.now(self._schedule_tz))
+
+    @staticmethod
+    def _build_tz(name: str):
+        # Fast path for UTC
+        if not name or name.upper() in {"UTC", "Z"}:
+            return timezone.utc
+        # Fixed offsets like +03:00 / -0500 / +0300
+        m = re.match(r"^([+-])(\d{2}):?(\d{2})$", name.strip())
+        if m:
+            sign = 1 if m.group(1) == "+" else -1
+            hh = int(m.group(2))
+            mm = int(m.group(3))
+            return timezone(sign * timedelta(hours=hh, minutes=mm))
+        return ZoneInfo(name)
 
     def _get_local_source(self, music_dir: Path) -> LocalLibrarySource:
         src = self._local_sources.get(music_dir)
@@ -164,7 +181,7 @@ class Streamer:
                     raise RuntimeError("Schedule is empty")
 
                 # reset daily RNGs on day change
-                today = datetime.now().date()
+                today = datetime.now(self._schedule_tz).date()
                 if self._current_day != today:
                     self._current_day = today
                     self._slot_rngs.clear()
@@ -367,7 +384,7 @@ class Streamer:
         Uses a copy of each slot RNG state so the live stream is not affected.
         """
 
-        today = datetime.now().date()
+        today = datetime.now(self._schedule_tz).date()
         if self._current_day != today:
             self._current_day = today
             self._slot_rngs.clear()
@@ -424,6 +441,80 @@ class Streamer:
             )
 
         return out
+
+    async def queue_preview(self, count: int) -> dict[str, object]:
+        """Preview upcoming tracks for the currently active slot.
+
+        Uses a copy of the slot RNG so the live stream is not affected.
+        """
+
+        slot = self._choose_slot()
+        if slot is None:
+            return {"slot": None, "tracks": [], "error": "schedule is empty"}
+
+        slot_key = (slot.key or "").strip()
+        try:
+            if slot.source == "telegram":
+                if not slot_key:
+                    return {"slot": slot.model_dump(), "tracks": [], "error": "missing key"}
+                source = self._get_telegram_source(slot_key)
+                label = await source.display_name() if source.enabled() else slot_key
+                live_rng = self._rng_for(slot_source=slot.source, key=slot_key)
+            elif slot.source == "local":
+                if not slot_key:
+                    return {"slot": slot.model_dump(), "tracks": [], "error": "missing key"}
+                key_path = Path(slot_key)
+                music_dir = key_path if key_path.is_absolute() else (DEFAULT_LOCAL_ROOT / key_path)
+                source = self._get_local_source(music_dir)
+                label = music_dir.name
+                live_rng = self._rng_for(slot_source=slot.source, key=str(music_dir))
+            else:
+                return {
+                    "slot": slot.model_dump(),
+                    "tracks": [],
+                    "error": f"unknown source: {slot.source!r}",
+                }
+
+            rng_copy = random.Random()
+            rng_copy.setstate(live_rng.getstate())
+
+            current = await self.now_playing.get()
+            current_title = current.title if current is not None else None
+
+            tracks: list[str] = []
+            # Generate a few extra, then drop current title if present.
+            for _ in range(max(0, int(count)) + 5):
+                tr = await source.next_track(
+                    mime_type=self._settings.stream_mime_type, rng=rng_copy
+                )
+                if current_title and tr.title == current_title:
+                    continue
+                tracks.append(tr.title)
+                if len(tracks) >= int(count):
+                    break
+
+            return {
+                "slot": {
+                    "start": slot.start.isoformat(),
+                    "end": slot.end.isoformat(),
+                    "source": slot.source,
+                    "key": slot.key,
+                    "label": label,
+                },
+                "tracks": tracks,
+                "error": None,
+            }
+        except Exception as exc:
+            return {
+                "slot": {
+                    "start": slot.start.isoformat(),
+                    "end": slot.end.isoformat(),
+                    "source": slot.source,
+                    "key": slot.key,
+                },
+                "tracks": [],
+                "error": str(exc),
+            }
 
     def _broadcast(self, chunk: bytes) -> None:
         # Protect memory: if a subscriber is slow, drop the subscriber.
@@ -513,7 +604,7 @@ class Streamer:
         }
 
     def _rng_for(self, slot_source: str, key: str) -> random.Random:
-        day = self._current_day or datetime.now().date()
+        day = self._current_day or datetime.now(self._schedule_tz).date()
         cache_key = (slot_source, key)
         rng = self._slot_rngs.get(cache_key)
         if rng is not None:

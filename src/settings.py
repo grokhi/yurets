@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import time
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,6 +13,11 @@ class ScheduleSlot(BaseModel):
     end: time
     source: str
     key: str | None = None
+
+
+class ScheduleConfig(BaseModel):
+    timezone: str
+    slots: list[ScheduleSlot]
 
 
 class TelegramSettings(BaseModel):
@@ -52,8 +57,11 @@ class Settings(BaseSettings):
     # Larger values often reduce gaps/stalls from Telegram/CDN.
     telegram_download_chunk_size: int = 262144
 
+    # Schedule format (recommended):
+    # {"timezone":"UTC","slots":[{"start":"00:00","end":"00:00","source":"local","key":"/music"}]}
+    # Backward-compatible legacy format: a plain list of slots (timezone defaults to UTC).
     schedule_json: str = Field(
-        default='[{"start":"00:00","end":"00:00","source":"local","key":"/music"}]'
+        default='{"timezone":"UTC","slots":[{"start":"00:00","end":"00:00","source":"local","key":"/music"}]}'
     )
 
     # Telegram settings (flat env vars with prefix)
@@ -72,6 +80,20 @@ class Settings(BaseSettings):
             fetch_limit=self.telegram_fetch_limit,
         )
 
+    def schedule_timezone(self) -> str:
+        data: Any = json.loads(self.schedule_json)
+        if isinstance(data, dict) and "timezone" in data:
+            tz = cast(Any, data).get("timezone")
+            if isinstance(tz, str) and tz.strip():
+                return tz.strip()
+        # Legacy schedule list: default to UTC
+        return "UTC"
+
     def schedule(self) -> list[ScheduleSlot]:
         data: Any = json.loads(self.schedule_json)
+        if isinstance(data, dict):
+            # New format
+            cfg = ScheduleConfig.model_validate(data)
+            return cfg.slots
+        # Legacy format
         return [ScheduleSlot.model_validate(item) for item in data]
