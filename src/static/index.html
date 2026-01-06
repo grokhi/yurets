@@ -28,6 +28,9 @@
     #schedule {
       white-space: pre-line;
     }
+    #queue {
+      white-space: pre-line;
+    }
     footer {
       /* font-weight: bold; */
       position: fixed;
@@ -49,7 +52,12 @@
   </div>
 
   <div class="row">
-    <audio id="player" controls autoplay></audio>
+    <audio id="player" controls></audio>
+  </div>
+
+  <div class="row">
+    <span class="label">Очередь:</span>
+    <div id="queue">(загрузка...)</div>
   </div>
 
   <div class="row">
@@ -67,19 +75,81 @@
       // во вкладке остаётся индикатор "загрузки" вместо favicon.
       // Поэтому стартуем стрим после window.load.
       var player = document.getElementById("player");
-      window.addEventListener("load", function () {
+      var streamAttached = false;
+      var wantPlay = false;
+
+      function attachStreamIfNeeded() {
+        if (streamAttached) return;
+        streamAttached = true;
         player.src = "/stream";
-        if (player.play) {
-          player.play().catch(function () {});
-        }
+        if (player.load) player.load();
+      }
+
+      function safePlay() {
+        if (!player.play) return;
+        try {
+          var p = player.play();
+          if (p && p.catch) p.catch(function () {});
+        } catch (e) {}
+      }
+
+      // Keep the old "attach after load" behavior to avoid favicon/infinite-loading quirks.
+      // But also: if the user clicks play before window.load fires, attach immediately
+      // and auto-resume when the stream becomes playable (no second click).
+      window.addEventListener("load", function () {
+        attachStreamIfNeeded();
       });
+
+      function userRequestedPlay() {
+        wantPlay = true;
+        attachStreamIfNeeded();
+        safePlay();
+      }
+
+      // First user gesture should reliably start playback.
+      player.addEventListener("pointerdown", userRequestedPlay, { once: true });
+      player.addEventListener(
+        "keydown",
+        function (e) {
+          if (e && (e.key === " " || e.key === "Enter")) userRequestedPlay();
+        },
+        { once: true }
+      );
+
+      // If buffering takes time, retry play when it becomes possible.
+      player.addEventListener("canplay", function () {
+        if (wantPlay) safePlay();
+      });
+      player.addEventListener("loadeddata", function () {
+        if (wantPlay) safePlay();
+      });
+      player.addEventListener("waiting", function () {
+        if (wantPlay) safePlay();
+      });
+      player.addEventListener("playing", function () {
+        // Playback successfully started.
+        wantPlay = false;
+      });
+      player.addEventListener("pause", function () {
+        // If the user pauses after playback started, don't auto-resume.
+        // (If the stream was never playing, canplay/waiting handlers may still kick in.)
+      });
+
+      function esc(s) {
+        return String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
 
       function renderNowPlaying(data) {
         var parts = [];
-        if (data && data.title) parts.push(data.title);
-        if (data && data.source) parts.push("Источник: " + data.source);
-        if (data && data.duration_seconds) parts.push("Длительность ~" + data.duration_seconds + "s");
-        document.getElementById("now-playing").textContent = parts.join(" | ") || "(нет данных)";
+        if (data && data.title) parts.push(esc(data.title));
+        if (data && data.source) parts.push("<b>Источник:</b> " + esc(data.source));
+        if (data && data.duration_seconds) parts.push("Длительность ~" + esc(data.duration_seconds) + "s");
+        document.getElementById("now-playing").innerHTML = parts.join(" | ") || "(нет данных)";
       }
 
       function hhmm(value) {
@@ -124,9 +194,88 @@
         }
       }
 
+      function parseMinutes(isoTime) {
+        // accepts "HH:MM" or "HH:MM:SS"
+        if (!isoTime) return null;
+        var s = String(isoTime);
+        var hh = parseInt(s.slice(0, 2), 10);
+        var mm = parseInt(s.slice(3, 5), 10);
+        if (isNaN(hh) || isNaN(mm)) return null;
+        return hh * 60 + mm;
+      }
+
+      function inSlot(nowMin, startMin, endMin) {
+        if (startMin === null || endMin === null) return false;
+        if (startMin === endMin) return true; // whole day
+        if (startMin < endMin) return nowMin >= startMin && nowMin < endMin;
+        // wraps over midnight
+        return nowMin >= startMin || nowMin < endMin;
+      }
+
+      function renderQueue(master) {
+        try {
+          var preview = (master && master.preview) || [];
+          if (!preview.length) {
+            document.getElementById("queue").textContent = "(нет данных)";
+            return;
+          }
+
+          var now = new Date();
+          var nowMin = now.getHours() * 60 + now.getMinutes();
+
+          var chosen = null;
+          for (var i = 0; i < preview.length; i++) {
+            var slot = preview[i] && preview[i].slot;
+            if (!slot) continue;
+            var startMin = parseMinutes(slot.start);
+            var endMin = parseMinutes(slot.end);
+            if (inSlot(nowMin, startMin, endMin)) {
+              chosen = preview[i];
+              break;
+            }
+          }
+          if (!chosen) chosen = preview[0];
+
+          var slot2 = chosen.slot || {};
+          var tracks = (chosen.tracks || []).slice(0);
+          var currentTitle = master && master.now_playing && master.now_playing.title;
+          if (currentTitle) {
+            tracks = tracks.filter(function (t) {
+              return String(t) !== String(currentTitle);
+            });
+          }
+
+          tracks = tracks.slice(0, 5);
+          if (!tracks.length) {
+            document.getElementById("queue").textContent = "(пусто)";
+            return;
+          }
+
+          var lines = [];
+          for (var j = 0; j < tracks.length; j++) {
+            lines.push(String(j + 1) + ". " + tracks[j]);
+          }
+          document.getElementById("queue").textContent = lines.join("\n");
+        } catch (e) {
+          document.getElementById("queue").textContent = "(ошибка очереди)";
+        }
+      }
+
+      async function pollMaster() {
+        try {
+          var res = await fetch("/api/master?count=30", { cache: "no-store" });
+          var data = await res.json();
+          renderQueue(data);
+        } catch (e) {
+          document.getElementById("queue").textContent = "(ошибка запроса)";
+        }
+      }
+
       poll();
       loadSchedule();
+      pollMaster();
       setInterval(poll, 5000);
+      setInterval(pollMaster, 15000);
     })();
   </script>
 </body>
