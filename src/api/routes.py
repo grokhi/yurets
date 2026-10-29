@@ -1,162 +1,153 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import asyncio
+import secrets
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from typing import Literal
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
-from starlette.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from pydantic import BaseModel, Field
 
 from src.models.now_playing import NowPlaying
 
 router = APIRouter()
+basic = HTTPBasic(auto_error=False)
 
 
-def _build_tz(name: str):
-    if not name or name.upper() in {"UTC", "Z"}:
-        return timezone.utc
-    # Fixed offsets like +03:00 / -0500 / +0300
-    import re
-
-    m = re.match(r"^([+-])(\d{2}):?(\d{2})$", name.strip())
-    if m:
-        sign = 1 if m.group(1) == "+" else -1
-        hh = int(m.group(2))
-        mm = int(m.group(3))
-        return timezone(sign * timedelta(hours=hh, minutes=mm))
-    return ZoneInfo(name)
+def require_admin(request: Request, credentials: HTTPBasicCredentials | None = Depends(basic)):
+    expected = request.app.state.settings.admin_password.get_secret_value()
+    if not expected:
+        raise HTTPException(503, "Статистика ещё не настроена")
+    if (
+        credentials is None
+        or credentials.username != "radio"
+        or not secrets.compare_digest(credentials.password.encode(), expected.encode())
+    ):
+        raise HTTPException(
+            401, "Требуется вход", headers={"WWW-Authenticate": 'Basic realm="Yurets statistics"'}
+        )
 
 
 @router.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@router.get("/api/now-playing", response_model=NowPlaying)
-async def now_playing(request: Request) -> JSONResponse:
+async def health(request: Request):
     streamer = request.app.state.streamer
-    current = await streamer.now_playing.get()
-
-    if current is None:
-        # предсказуемое дефолтное значение
-        current = NowPlaying(
-            title="(ещё не началось)",
-            source="unknown",
-            duration_seconds=None,
-            mime_type=request.app.state.settings.stream_mime_type,
-        )
-
-    pos = streamer.current_position_seconds()
-    current = current.model_copy(update={"position_seconds": pos})
-    return JSONResponse(content=current.model_dump())
-
-
-@router.get("/api/master")
-async def master_debug(
-    request: Request,
-    count: int = Query(default=10, ge=0, le=200, description="Preview tracks per slot"),
-    queue_count: int = Query(default=5, ge=0, le=50, description="Queue size for current slot"),
-) -> JSONResponse:
-    streamer = request.app.state.streamer
-    settings = request.app.state.settings
-
-    current = await streamer.now_playing.get()
-    if current is None:
-        current = NowPlaying(
-            title="(ещё не началось)",
-            source="unknown",
-            duration_seconds=None,
-            position_seconds=None,
-            mime_type=settings.stream_mime_type,
-        )
-    else:
-        current = current.model_copy(
-            update={"position_seconds": streamer.current_position_seconds()}
-        )
-
-    preview = await streamer.preview_tracks(count_per_slot=count)
-    queue = await streamer.queue_preview(count=int(queue_count))
-    diagnostics_stats = streamer.diagnostics()
-
     return JSONResponse(
-        content={
-            "now_playing": current.model_dump(),
-            "schedule_timezone": settings.schedule_timezone(),
-            "assumed_bitrate_kbps": settings.assumed_bitrate_kbps,
-            "source_chunk_size": settings.chunk_size,
-            "broadcast_chunk_size": settings.broadcast_chunk_size,
-            "track_buffer_chunks": settings.track_buffer_chunks,
-            "subscriber_queue_chunks": settings.subscriber_queue_chunks,
-            "stats": diagnostics_stats,
-            "preview": preview,
-            "queue": queue,
-        }
+        {
+            "status": "ok" if streamer.ready else "unavailable",
+            "source": "plex",
+            "error": streamer.diagnostics()["error"],
+        },
+        status_code=200 if streamer.ready else 503,
     )
 
 
-@router.get("/api/stats")
-async def stats(request: Request) -> JSONResponse:
+@router.get("/api/now-playing", response_model=NowPlaying)
+async def now_playing(request: Request):
     streamer = request.app.state.streamer
-    return JSONResponse(content=streamer.diagnostics())
+    current = await streamer.now_playing.get() or NowPlaying(
+        title="Ожидание эфира",
+        source="Plex",
+        mime_type="audio/mpeg",
+    )
+    return current.model_copy(update={"position_seconds": streamer.current_position_seconds()})
+
+
+@router.get("/api/queue")
+async def queue(request: Request, count: int = Query(default=5, ge=0, le=50)):
+    return await request.app.state.streamer.queue_preview(count)
+
+
+@router.get("/api/master")
+async def master(request: Request, queue_count: int = Query(default=5, ge=0, le=50)):
+    streamer = request.app.state.streamer
+    return {
+        "now_playing": (await now_playing(request)).model_dump(),
+        "queue": await streamer.queue_preview(queue_count),
+        "stats": streamer.diagnostics(),
+    }
+
+
+@router.get("/api/stats")
+async def stats(request: Request):
+    # Public technical stream counters only; visitor records are admin-only.
+    return request.app.state.streamer.diagnostics()
 
 
 @router.get("/api/schedule")
-async def schedule(request: Request) -> JSONResponse:
-    settings = request.app.state.settings
+async def schedule(request: Request):
     streamer = request.app.state.streamer
-
-    schedule_tz_name = settings.schedule_timezone()
-    schedule_tz = _build_tz(schedule_tz_name)
-    now_tz = datetime.now(schedule_tz)
-    today = now_tz.date()
-
-    slots: list[dict[str, object]] = []
-    for slot in settings.schedule():
-        label = slot.source
-        if slot.source == "telegram":
-            if slot.key and streamer.telegram_session.enabled():
-                label = await streamer.telegram_session.display_name(slot.key)
-            elif slot.key:
-                label = slot.key
-            else:
-                label = "telegram"
-        elif slot.source == "local":
-            label = Path(slot.key).name if slot.key else "local"
-
-        start_dt = datetime.combine(today, slot.start, tzinfo=schedule_tz)
-        end_dt = datetime.combine(today, slot.end, tzinfo=schedule_tz)
-        if slot.start == slot.end:
-            end_dt = start_dt + timedelta(days=1)
-        elif slot.end < slot.start:
-            end_dt = end_dt + timedelta(days=1)
-
-        slots.append(
-            {
-                # legacy fields (schedule timezone wall-clock)
-                "start": slot.start.isoformat(),
-                "end": slot.end.isoformat(),
-                # absolute timestamps for correct device-local rendering
-                "start_at": start_dt.astimezone(timezone.utc).isoformat(),
-                "end_at": end_dt.astimezone(timezone.utc).isoformat(),
-                "source": label,
-                "key": slot.key,
-            }
-        )
-
-    return JSONResponse(content={"timezone": schedule_tz_name, "slots": slots})
+    return await streamer.program.schedule(streamer.now())
 
 
 @router.get("/stream")
-async def stream(request: Request) -> StreamingResponse:
+async def stream(request: Request):
     streamer = request.app.state.streamer
-    settings = request.app.state.settings
-
-    headers = {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
-    }
-
+    if not streamer.ready:
+        raise HTTPException(503, "Эфир временно недоступен", headers={"Retry-After": "5"})
     return StreamingResponse(
-        streamer.subscribe(), media_type=settings.stream_mime_type, headers=headers
+        streamer.subscribe(),
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def visitor_context(request: Request):
+    analytics = request.app.state.analytics
+    visitor = analytics.identify(request.cookies.get(analytics.cookie_name))
+    ip, country = analytics.location(
+        request.client.host if request.client else "unknown",
+        request.headers.get("x-forwarded-for", ""),
+    )
+    return visitor, ip, country
+
+
+def set_listener_cookie(request: Request, response: Response, visitor: str):
+    analytics = request.app.state.analytics
+    response.set_cookie(
+        analytics.cookie_name,
+        analytics.signed(visitor),
+        max_age=365 * 86400,
+        httponly=True,
+        samesite="lax",
+        secure=request.app.state.settings.secure_cookies,
+    )
+
+
+class ListeningEvent(BaseModel):
+    action: Literal["start", "heartbeat", "stop"]
+    session_id: str | None = Field(default=None, max_length=64)
+    position: float = Field(ge=0, le=1_000_000_000, allow_inf_nan=False)
+
+
+@router.post("/api/listening")
+async def listening(request: Request, event: ListeningEvent):
+    visitor, ip, country = visitor_context(request)
+    session_id = await asyncio.to_thread(
+        request.app.state.analytics.listening,
+        visitor,
+        event.action,
+        event.session_id,
+        event.position,
+        ip,
+        country,
+    )
+    response = JSONResponse({"session_id": session_id})
+    set_listener_cookie(request, response, visitor)
+    return response
+
+
+@router.get("/api/analytics", dependencies=[Depends(require_admin)])
+async def analytics(request: Request, days: int = Query(default=30, ge=1, le=365)):
+    return await asyncio.to_thread(request.app.state.analytics.summary, days)
+
+
+@router.get("/stats", include_in_schema=False, dependencies=[Depends(require_admin)])
+async def statistics_page():
+    return FileResponse(
+        Path(__file__).resolve().parents[1] / "pages" / "stats.html", media_type="text/html"
     )

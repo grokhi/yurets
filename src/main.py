@@ -1,61 +1,83 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import router
+from src.api.routes import router, set_listener_cookie, visitor_context
+from src.services.analytics import Analytics
+from src.services.database import Database
 from src.settings import Settings
+from src.streaming.sources.plex import PlexError
 from src.streaming.streamer import Streamer
 
 
-@asynccontextmanager
-async def lifespan(fastapi_app: FastAPI):
-    streamer: Streamer = fastapi_app.state.streamer
+def create_app(settings: Settings | None = None, *, source=None) -> FastAPI:
+    settings = settings or Settings()
 
-    await streamer.startup()
-    try:
-        yield
-    finally:
-        await streamer.shutdown()
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        database = Database(Path(settings.data_dir) / "radio.sqlite3")
+        analytics = Analytics(settings, database)
+        streamer = Streamer(settings, database, source)
+        app.state.database, app.state.analytics, app.state.streamer = database, analytics, streamer
 
+        async def maintain():
+            while True:
+                await asyncio.sleep(3600)
+                await asyncio.to_thread(analytics.purge)
 
-def create_app() -> FastAPI:
-    settings = Settings()
+        await streamer.startup()
+        maintenance = asyncio.create_task(maintain())
+        try:
+            yield
+        finally:
+            maintenance.cancel()
+            try:
+                await maintenance
+            except asyncio.CancelledError:
+                pass
+            await streamer.shutdown()
+            analytics.close()
+            database.close()
+
     app = FastAPI(title="Юрец ФМ", lifespan=lifespan)
-
     app.state.settings = settings
-    app.state.streamer = Streamer(settings=settings)
-
     app.include_router(router)
-
     static_dir = Path(__file__).resolve().parent / "static"
 
-    index_path = static_dir / "index.html"
-    favicon_svg_path = static_dir / "favicon.svg"
+    @app.middleware("http")
+    async def private_responses(request: Request, call_next):
+        response = await call_next(request)
+        if not request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.exception_handler(PlexError)
+    async def plex_error(request: Request, exc: PlexError):
+        return JSONResponse(
+            {"detail": "Plex временно недоступен", "code": str(exc)}, status_code=503
+        )
 
     @app.get("/", include_in_schema=False)
-    async def index() -> FileResponse:
-        headers = {
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-        }
-        return FileResponse(path=str(index_path), media_type="text/html", headers=headers)
+    async def index(request: Request):
+        visitor, ip, country = visitor_context(request)
+        await asyncio.to_thread(
+            app.state.analytics.visit, visitor, ip, country, request.headers.get("user-agent", "")
+        )
+        response = FileResponse(static_dir / "index.html", media_type="text/html")
+        set_listener_cookie(request, response, visitor)
+        return response
 
     @app.get("/favicon.ico", include_in_schema=False)
-    async def favicon_ico() -> FileResponse:
-        # Часть браузеров всегда запрашивает /favicon.ico.
-        # Отдаём наш SVG (современные браузеры понимают), чтобы была иконка во вкладке.
-        headers = {
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-        }
-        return FileResponse(path=str(favicon_svg_path), media_type="image/svg+xml", headers=headers)
+    async def favicon():
+        return FileResponse(static_dir / "favicon.svg", media_type="image/svg+xml")
 
-    app.mount("/static", StaticFiles(directory=str(static_dir), html=False), name="static")
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
     return app
 
 

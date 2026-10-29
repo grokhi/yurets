@@ -136,6 +136,10 @@ celerybeat.pid
 
 # Environments
 .env
+.env.plex
+.env.plex.pending
+data/
+geoip/
 .envrc
 .venv
 env/

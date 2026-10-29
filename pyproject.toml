@@ -15,12 +15,15 @@ pydantic-settings = "^2.7.0"
 aiofiles = "^24.1.0"
 telethon = "^1.38.1"
 mutagen = "^1.47.0"
+httpx = ">=0.28,<0.29"
+maxminddb = ">=2.8,<3"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.8.4"
 
 [tool.ruff]
 line-length = 100
+target-version = "py312"
 
 [build-system]
 requires = ["poetry-core"]

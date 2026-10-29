@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from datetime import time
+from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,23 +32,43 @@ class TelegramSettings(BaseModel):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="YURETS_",
+        env_file=(".env", ".env.plex"),
+        extra="ignore",
         case_sensitive=False,
         env_ignore_empty=True,
     )
 
-    stream_mime_type: Literal["audio/mpeg", "audio/ogg"] = "audio/mpeg"
+    # The active radio pipeline is Plex -> FFmpeg -> constant-bitrate MP3.
+    stream_mime_type: Literal["audio/mpeg"] = "audio/mpeg"
+    plex_url: str = ""
+    plex_token: SecretStr = SecretStr("")
+    plex_library_id: str = ""
+    plex_server_id: str = ""
+    plex_album_ids: list[str] = Field(default_factory=list)
+    timezone: str = "Asia/Tokyo"
+    data_dir: str = "./data"
+    ffmpeg_path: str = "ffmpeg"
+    plex_timeout_seconds: float = Field(default=30, gt=0)
+    plex_max_track_bytes: int = Field(default=1024 * 1024 * 1024, gt=0)
+    admin_password: SecretStr = SecretStr("")
+    trusted_proxy_cidrs: list[str] = Field(default_factory=list)
+    geoip_database: str = str(
+        Path(__file__).resolve().parents[1] / "geoip" / "dbip-country-lite.mmdb"
+    )
+    analytics_retention_days: int = Field(default=90, ge=1)
+    secure_cookies: bool = True
     # Chunk size used when reading from local files (and as a default).
     # Telegram downloads can be tuned separately via telegram_download_chunk_size.
     chunk_size: int = 65536
 
     # Chunk size used when broadcasting to HTTP clients.
     # Smaller chunks reduce jitter/underruns in browser streaming.
-    broadcast_chunk_size: int = 4096
-    assumed_bitrate_kbps: int = 192
+    broadcast_chunk_size: int = Field(default=4096, ge=1024, le=65536)
+    assumed_bitrate_kbps: int = Field(default=192, ge=64, le=320)
 
     # How many chunks to buffer per subscriber before dropping the connection.
     # Dropping chunks corrupts MP3/OGG streams and causes audible stutter.
-    subscriber_queue_chunks: int = 256
+    subscriber_queue_chunks: int = Field(default=256, ge=1, le=2048)
 
     # How many source-chunks to buffer per track ahead of broadcast.
     # This decouples Telegram download timing from real-time playback.
@@ -64,7 +85,8 @@ class Settings(BaseSettings):
         default='{"timezone":"UTC","slots":[{"start":"00:00","end":"00:00","source":"local","key":"/music"}]}'
     )
 
-    # Telegram settings (flat env vars with prefix)
+    # Legacy source configuration is retained for compatibility, but is never
+    # read by the active Plex-only streamer. No Telegram client is started.
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
     telegram_bot_token: str | None = None

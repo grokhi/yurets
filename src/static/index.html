@@ -1,248 +1,36 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Юрец ФМ</title>
-  <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml" />
-  <link rel="icon" href="/static/favicon.svg?v=2" sizes="any" />
-  <style>
-    body {
-      font-family: "Times New Roman", Times, serif;
-      background: PeachPuff;
-      color: black;
-      margin: 200px 24px 24px 100px;
-      padding-bottom: 56px;
-    }
-    h1 {
-      font-family: "Times New Roman", Times, serif;
-      font-size: 32px;
-      margin: 0 0 12px 0;
-      font-weight: bold;
-    }
-    .row { margin: 0 0 10px 0; }
-    .label { font-weight: bold; }
-    audio {
-      display: block;
-      margin-top: 6px;
-    }
-    #schedule {
-      white-space: pre-line;
-    }
-    #queue {
-      white-space: pre-line;
-    }
-    footer {
-      /* font-weight: bold; */
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      padding: 12px 0;
-      background: inherit;
-      text-align: center;
-    }
-  </style>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/radio.css">
+  <script src="/static/radio.js" defer></script>
 </head>
 <body>
-  <h1>Юрец ФМ</h1>
-
-  <div class="row">
-    <span class="label">Текущий трек:</span>
-    <span id="now-playing">(загрузка...)</span>
-  </div>
-
-  <div class="row">
-    <audio id="player" controls></audio>
-  </div>
-
-  <div class="row">
-    <span class="label">Очередь:</span>
-    <div id="queue">(загрузка...)</div>
-  </div>
-
-  <div class="row">
-    <span class="label">Расписание:</span>
-    <div id="schedule">(загрузка...)</div>
-  </div>
-
-  <footer>
-    Powered by sovbak yebak experience.
-  </footer>
-
-  <script>
-    (function () {
-      // /stream — бесконечный запрос. В некоторых браузерах, если стартовать его слишком рано,
-      // во вкладке остаётся индикатор "загрузки" вместо favicon.
-      // Поэтому стартуем стрим после window.load.
-      var player = document.getElementById("player");
-      var streamAttached = false;
-      var wantPlay = false;
-
-      function attachStreamIfNeeded() {
-        if (streamAttached) return;
-        streamAttached = true;
-        player.src = "/stream";
-        if (player.load) player.load();
-      }
-
-      function safePlay() {
-        if (!player.play) return;
-        try {
-          var p = player.play();
-          if (p && p.catch) p.catch(function () {});
-        } catch (e) {}
-      }
-
-      // Keep the old "attach after load" behavior to avoid favicon/infinite-loading quirks.
-      // But also: if the user clicks play before window.load fires, attach immediately
-      // and auto-resume when the stream becomes playable (no second click).
-      window.addEventListener("load", function () {
-        attachStreamIfNeeded();
-      });
-
-      function userRequestedPlay() {
-        wantPlay = true;
-        attachStreamIfNeeded();
-        safePlay();
-      }
-
-      // First user gesture should reliably start playback.
-      player.addEventListener("pointerdown", userRequestedPlay, { once: true });
-      player.addEventListener(
-        "keydown",
-        function (e) {
-          if (e && (e.key === " " || e.key === "Enter")) userRequestedPlay();
-        },
-        { once: true }
-      );
-
-      // If buffering takes time, retry play when it becomes possible.
-      player.addEventListener("canplay", function () {
-        if (wantPlay) safePlay();
-      });
-      player.addEventListener("loadeddata", function () {
-        if (wantPlay) safePlay();
-      });
-      player.addEventListener("waiting", function () {
-        if (wantPlay) safePlay();
-      });
-      player.addEventListener("playing", function () {
-        // Playback successfully started.
-        wantPlay = false;
-      });
-      player.addEventListener("pause", function () {
-        // If the user pauses after playback started, don't auto-resume.
-        // (If the stream was never playing, canplay/waiting handlers may still kick in.)
-      });
-
-      function esc(s) {
-        return String(s || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/\"/g, "&quot;")
-          .replace(/'/g, "&#39;");
-      }
-
-      function renderNowPlaying(data) {
-        var parts = [];
-        if (data && data.title) parts.push(esc(data.title));
-        if (data && data.source) parts.push("<b>Источник:</b> " + esc(data.source));
-        document.getElementById("now-playing").innerHTML = parts.join(" | ") || "(нет данных)";
-      }
-
-      function hhmmFromIso(iso) {
-        if (!iso) return "";
-        try {
-          var d = new Date(String(iso));
-          if (!isFinite(d.getTime())) return "";
-          return d.toLocaleTimeString("ru-RU", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-            hourCycle: "h23",
-          });
-        } catch (e) {
-          return "";
-        }
-      }
-
-      function renderSchedule(data) {
-        try {
-          var slots = (data && data.slots) || [];
-          if (!slots.length) {
-            document.getElementById("schedule").textContent = "(нет расписания)";
-            return;
-          }
-
-          var lines = slots.map(function (s) {
-            if (s && s.start_at && s.end_at) {
-              return hhmmFromIso(s.start_at) + " - " + hhmmFromIso(s.end_at) + " | " + (s.source || "");
-            }            
-            return "(неизвестный слот)";
-          });
-          document.getElementById("schedule").textContent = lines.join("\n");
-        } catch (e) {
-          document.getElementById("schedule").textContent = "(ошибка расписания)";
-        }
-      }
-
-      async function loadSchedule() {
-        try {
-          var res = await fetch("/api/schedule", { cache: "no-store" });
-          var data = await res.json();
-          renderSchedule(data);
-        } catch (e) {
-          document.getElementById("schedule").textContent = "(ошибка запроса)";
-        }
-      }
-
-      async function poll() {
-        try {
-          var res = await fetch("/api/now-playing", { cache: "no-store" });
-          var data = await res.json();
-          renderNowPlaying(data);
-        } catch (e) {
-          document.getElementById("now-playing").textContent = "(ошибка запроса)";
-        }
-      }
-
-      function renderQueue(master) {
-        try {
-          var queue = master && master.queue;
-          var tracks = (queue && queue.tracks) || [];
-          tracks = tracks.slice(0, 5);
-          if (!tracks.length) {
-            document.getElementById("queue").textContent = "(пусто)";
-            return;
-          }
-
-          var lines = [];
-          for (var j = 0; j < tracks.length; j++) {
-            lines.push(String(j + 1) + ". " + tracks[j]);
-          }
-          document.getElementById("queue").textContent = lines.join("\n");
-        } catch (e) {
-          document.getElementById("queue").textContent = "(ошибка очереди)";
-        }
-      }
-
-      async function pollMaster() {
-        try {
-          var res = await fetch("/api/master?count=30&queue_count=5", { cache: "no-store" });
-          var data = await res.json();
-          renderQueue(data);
-        } catch (e) {
-          document.getElementById("queue").textContent = "(ошибка запроса)";
-        }
-      }
-
-      poll();
-      loadSchedule();
-      pollMaster();
-      setInterval(poll, 5000);
-      setInterval(pollMaster, 15000);
-    })();
-  </script>
+  <main>
+    <h1>Юрец ФМ</h1>
+    <div class="row"><b>Текущий трек:</b> <span id="now-playing" aria-live="polite">Загрузка…</span></div>
+    <div class="row"><b>Альбом:</b> <span id="album">—</span></div>
+    <div class="row"><b>Источник:</b> Plex</div>
+    <div class="row">
+      <button id="listen" type="button">Слушать эфир</button>
+      <audio id="player" controls preload="none" aria-label="Радио Юрец ФМ"></audio>
+      <p id="playback-status" role="status"></p>
+    </div>
+    <section class="row" aria-labelledby="queue-label">
+      <h2 id="queue-label">Далее в эфире</h2>
+      <ol id="queue"><li>Загрузка…</li></ol>
+    </section>
+    <section class="row" aria-labelledby="schedule-label">
+      <h2 id="schedule-label">Альбомы на сегодня</h2>
+      <p id="schedule-date"></p>
+      <div id="schedule">Загрузка…</div>
+    </section>
+    <p class="note">Для статистики посещений и прослушиваний сохраняются IP, страна и идентификатор этого браузера.</p>
+    <p><a href="/stats">Статистика</a></p>
+  </main>
+  <footer>Powered by sovbak yebak experience.</footer>
 </body>
 </html>

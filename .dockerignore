@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+.env.*
+data
+geoip
+music
+telegram_session
+**/__pycache__
+.ruff_cache
+.pytest_cache

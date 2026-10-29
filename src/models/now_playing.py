@@ -11,3 +11,7 @@ class NowPlaying(BaseModel):
     mime_type: Literal["audio/mpeg", "audio/ogg"]
     duration_seconds: int | None = None
     position_seconds: int | None = None
+    track_id: str | None = None
+    album: str | None = None
+    album_id: str | None = None
+    artist: str | None = None
