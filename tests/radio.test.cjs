@@ -33,7 +33,7 @@ class Element {
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-async function setup({empty = false} = {}) {
+async function setup({empty = false, media = false} = {}) {
   const elements = new Map(); const intervals = new Map(); const events = [];
   const get = id => {
     assert.notEqual(id, 'listen', 'Playback must use the native player only');
@@ -45,9 +45,12 @@ async function setup({empty = false} = {}) {
   assert.match(audio, /preload="none"/);
   get('player').src = audio.match(/src="([^"]+)"/)[1];
   const metadata = '<img src=x onerror=alert(1)>';
+  const handlers = new Map();
+  const mediaSession = {setActionHandler: (name, handler) => handlers.set(name, handler)};
   const context = {
     document: {getElementById: get, createElement: () => new Element()},
-    window: {addEventListener() {}}, navigator: {sendBeacon() {}}, Blob, Date,
+    window: {addEventListener() {}}, navigator: {sendBeacon() {}, ...(media ? {mediaSession} : {})}, Blob, Date,
+    MediaMetadata: class { constructor(values) { Object.assign(this, values); } },
     setInterval: (callback, ms) => intervals.set(ms, callback),
     fetch: async (url, options) => {
       let result;
@@ -62,7 +65,7 @@ async function setup({empty = false} = {}) {
   };
   vm.runInNewContext(fs.readFileSync('src/static/radio.js', 'utf8'), context);
   await settle();
-  return {player: get('player'), events, intervals, get, metadata};
+  return {player: get('player'), events, intervals, get, metadata, mediaSession, handlers};
 }
 
 test('opening the site does not play or count listening; table metadata is plain text', async () => {
@@ -115,4 +118,21 @@ test('empty queue and schedule render a single spanning table cell', async () =>
   const ui = await setup({empty: true});
   assert.equal(ui.get('queue').firstElementChild.firstElementChild.colSpan, 3);
   assert.equal(ui.get('schedule').firstElementChild.firstElementChild.colSpan, 4);
+});
+
+
+test('lock screen receives track metadata and its controls use the live player', async () => {
+  const ui = await setup({media: true});
+  assert.equal(ui.mediaSession.metadata.title, ui.metadata);
+  assert.equal(ui.mediaSession.metadata.artist, 'Artist');
+  assert.equal(ui.mediaSession.metadata.album, 'Album');
+  assert.equal(ui.handlers.get('seekto'), null);
+  await ui.handlers.get('play')(); await settle();
+  assert.equal(ui.mediaSession.playbackState, 'playing');
+  await ui.handlers.get('pause')(); await settle();
+  assert.equal(ui.mediaSession.playbackState, 'paused');
+  assert.equal(ui.player.downloading, false);
+  ui.mediaSession.metadata = null;
+  await ui.intervals.get(5000)();
+  assert.equal(ui.mediaSession.metadata.title, ui.metadata);
 });

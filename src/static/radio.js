@@ -5,6 +5,38 @@
   let session = null;
   let events = Promise.resolve();
 
+  const mediaSession = navigator.mediaSession;
+  function playbackState(value) {
+    if (mediaSession) {
+      try { mediaSession.playbackState = value; } catch (_) { /* Optional browser API. */ }
+    }
+  }
+  if (mediaSession) {
+    const actions = {
+      play: async () => {
+        try { await player.play(); }
+        catch (_) { status.textContent = 'Эфир временно недоступен.'; }
+      },
+      pause: () => player.pause(),
+      stop: () => player.pause(),
+      seekbackward: null, seekforward: null, seekto: null,
+      previoustrack: null, nexttrack: null,
+    };
+    for (const [action, handler] of Object.entries(actions)) {
+      try { mediaSession.setActionHandler(action, handler); } catch (_) { /* Unsupported action. */ }
+    }
+  }
+  function updateMedia(current) {
+    if (!mediaSession || typeof MediaMetadata === 'undefined') return;
+    try {
+      mediaSession.metadata = new MediaMetadata({
+        title: current.title || 'Радио Юрец',
+        artist: current.artist || 'Радио Юрец',
+        album: current.album || '',
+      });
+    } catch (_) { /* Metadata must never interrupt playback. */ }
+  }
+
   async function json(url) {
     const response = await fetch(url, {cache: 'no-store'});
     if (!response.ok) throw new Error('unavailable');
@@ -36,12 +68,14 @@
   player.addEventListener('playing', () => {
     if (player.paused) return;
     status.textContent = 'В эфире';
+    playbackState('playing');
     if (!listening) { listening = true; event('start'); }
   });
   player.addEventListener('pause', () => {
     if (!player.paused) return;
     stopCounting();
     status.textContent = 'Пауза';
+    playbackState('paused');
     // Keep src so native Play stays available. preload=none releases the current
     // request on load(); the next Play connects to live radio with no old buffer.
     player.load();
@@ -51,11 +85,13 @@
     stopCounting();
     player.load();
     status.textContent = 'Эфир остановлен.';
+    playbackState('none');
   });
   player.addEventListener('error', () => {
     stopCounting();
     player.load();
     status.textContent = 'Эфир временно недоступен.';
+    playbackState('none');
   });
   setInterval(() => { if (listening && !player.paused) event('heartbeat'); }, 10000);
   window.addEventListener('pagehide', () => {
@@ -83,6 +119,7 @@
       const current = await json('/api/now-playing');
       document.getElementById('now-playing').textContent = [current.artist, current.title].filter(Boolean).join(' — ');
       document.getElementById('album').textContent = current.album || '—';
+      updateMedia(current);
     } catch (_) { document.getElementById('now-playing').textContent = 'Эфир временно недоступен'; }
     const queue = document.getElementById('queue');
     try {
