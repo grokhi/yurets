@@ -1,0 +1,69 @@
+name: Deploy to Timeweb
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: timeweb-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Restore SSH host identity
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.ssh/known_hosts
+          key: timeweb-6355545-known-hosts-v1
+      - name: Install SSH password helper
+        run: |
+          if ! command -v sshpass >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y sshpass
+          fi
+      - name: Deploy the main commit
+        id: release
+        env:
+          SSHPASS: ${{ secrets.YURETS_SSH_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SSHPASS" ]; then
+            echo '::error::Add the repository Actions secret YURETS_SSH_PASSWORD (Timeweb SSH password).'
+            exit 1
+          fi
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          # First connection records the host key; later runs reject a changed key.
+          if sshpass -e ssh -F /dev/null -T \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            -o PreferredAuthentications=password,keyboard-interactive \
+            -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
+            root@147.45.100.176 "bash -s -- $GITHUB_SHA" < scripts/deploy-timeweb.sh; then
+            echo 'deployed=true' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            if [ "$result" -eq 75 ]; then
+              echo 'deployed=false' >> "$GITHUB_OUTPUT"
+            else
+              exit "$result"
+            fi
+          fi
+      - name: Check public website
+        if: steps.release.outputs.deployed == 'true'
+        run: |
+          curl --fail --silent --show-error --retry 3 https://yurets.you/health
+          curl --fail --silent --show-error --output /dev/null https://yurets.you/stats
+          printf '\nDeployed %s to https://yurets.you\n' "$GITHUB_SHA"
