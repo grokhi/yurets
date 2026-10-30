@@ -25,7 +25,7 @@ async def link(args):
     client_id = saved["client_id"] if saved else str(uuid.uuid4())
     headers = {
         "Accept": "application/json",
-        "X-Plex-Product": "Yurets FM",
+        "X-Plex-Product": "Yurets",
         "X-Plex-Client-Identifier": client_id,
     }
     async with httpx.AsyncClient(headers=headers, timeout=15, follow_redirects=False) as client:
@@ -40,10 +40,10 @@ async def link(args):
                 {
                     "clientID": client_id,
                     "code": pin["code"],
-                    "context[device][product]": "Yurets FM",
+                    "context[device][product]": "Радио Юрец",
                 }
             )
-            print("Откройте ссылку и подтвердите подключение Юрец ФМ:", flush=True)
+            print("Откройте ссылку и подтвердите подключение Радио Юрец:", flush=True)
             print(auth_url, flush=True)
             deadline = time.monotonic() + min(float(pin.get("expiresIn", 300)), 600)
             token = None

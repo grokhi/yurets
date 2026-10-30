@@ -3,33 +3,45 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Юрец ФМ</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/radio.css">
-  <script src="/static/radio.js" defer></script>
+  <title>Юрец</title>
+  <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/radio.css?v=2">
+  <script src="/static/radio.js?v=2" defer></script>
 </head>
 <body>
   <main>
-    <h1>Юрец ФМ</h1>
-    <div class="row"><b>Текущий трек:</b> <span id="now-playing" aria-live="polite">Загрузка…</span></div>
-    <div class="row"><b>Альбом:</b> <span id="album">—</span></div>
-    <div class="row"><b>Источник:</b> Plex</div>
-    <div class="row">
-      <button id="listen" type="button">Слушать эфир</button>
-      <audio id="player" controls preload="none" aria-label="Радио Юрец ФМ"></audio>
-      <p id="playback-status" role="status"></p>
+    <h1>Радио Юрец</h1>
+    <p><a href="/stats">Статистика</a> · <a href="#schedule-label">Расписание</a></p>
+    <audio id="player" src="/stream" controls preload="none" aria-label="Радио Юрец"></audio>
+    <p id="playback-status" role="status">Нажмите ▶ в плеере.</p>
+    <div class="table-wrap" role="region" aria-label="Сейчас в эфире" tabindex="0">
+      <table>
+        <tbody>
+          <tr><th scope="row">Сейчас</th><td id="now-playing" aria-live="polite">Загрузка…</td></tr>
+          <tr><th scope="row">Альбом</th><td id="album">—</td></tr>
+        </tbody>
+      </table>
     </div>
-    <section class="row" aria-labelledby="queue-label">
+    <section aria-labelledby="queue-label">
       <h2 id="queue-label">Далее в эфире</h2>
-      <ol id="queue"><li>Загрузка…</li></ol>
+      <div class="table-wrap" role="region" aria-labelledby="queue-label" tabindex="0">
+        <table>
+          <thead><tr><th scope="col">Исполнитель</th><th scope="col">Трек</th><th scope="col">Альбом</th></tr></thead>
+          <tbody id="queue"><tr><td colspan="3">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
     </section>
-    <section class="row" aria-labelledby="schedule-label">
+    <section aria-labelledby="schedule-label">
       <h2 id="schedule-label">Альбомы на сегодня</h2>
       <p id="schedule-date"></p>
-      <div id="schedule">Загрузка…</div>
+      <div class="table-wrap" role="region" aria-labelledby="schedule-label" tabindex="0">
+        <table>
+          <thead><tr><th scope="col">Время</th><th scope="col">Исполнитель</th><th scope="col">Альбом</th><th scope="col">Треков</th></tr></thead>
+          <tbody id="schedule"><tr><td colspan="4">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
     </section>
-    <p class="note">Для статистики посещений и прослушиваний сохраняются IP, страна и идентификатор этого браузера.</p>
-    <p><a href="/stats">Статистика</a></p>
+    <p class="note">Статистика открыта для всех: посещения, IP, страны и время прослушивания. Слушатели различаются по cookie браузера.</p>
   </main>
   <footer>Powered by sovbak yebak experience.</footer>
 </body>

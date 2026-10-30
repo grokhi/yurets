@@ -3,26 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Статистика — Юрец ФМ</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/radio.css">
-  <script src="/static/stats.js" defer></script>
+  <title>Статистика — Юрец</title>
+  <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/radio.css?v=2">
+  <script src="/static/stats.js?v=2" defer></script>
 </head>
 <body>
   <main>
-    <h1>Кто слушает Юрец ФМ</h1>
+    <h1>Статистика радио Юрец</h1>
     <p><a href="/">← Вернуться к эфиру</a></p>
     <p><label for="period">За последние </label><select id="period"><option value="1">сутки</option><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option></select> <button id="refresh" type="button">Обновить</button></p>
     <p id="status" role="status">Загрузка…</p>
-    <div id="metrics" class="metrics"></div>
-    <h2>Самые преданные слушатели</h2>
-    <div class="table-wrap"><table><thead><tr><th>Слушатель</th><th>В эфире</th><th>Сеансов</th><th>Страна</th><th>Последний IP</th><th>Был здесь</th></tr></thead><tbody id="listeners"></tbody></table></div>
-    <h2>Откуда приходят</h2>
-    <div class="table-wrap"><table><thead><tr><th>Страна</th><th>Посещений</th><th>Браузеров</th></tr></thead><tbody id="countries"></tbody></table></div>
-    <h2>Посещения по дням (UTC)</h2>
-    <div class="table-wrap"><table><thead><tr><th>День</th><th>Посещений</th><th>Браузеров</th></tr></thead><tbody id="daily"></tbody></table></div>
-    <h2>Последние посещения</h2>
-    <div class="table-wrap"><table><thead><tr><th>Когда</th><th>Слушатель</th><th>IP</th><th>Страна</th><th>Браузер</th></tr></thead><tbody id="visits"></tbody></table></div>
+    <div class="table-wrap" role="region" aria-label="Общая статистика" tabindex="0"><table><tbody id="metrics"></tbody></table></div>
+    <h2 id="listeners-label">Самые преданные слушатели</h2>
+    <div class="table-wrap" role="region" aria-labelledby="listeners-label" tabindex="0"><table><thead><tr><th scope="col">Слушатель</th><th scope="col">В эфире</th><th scope="col">Сеансов</th><th scope="col">Страна</th><th scope="col">Последний IP</th><th scope="col">Был здесь</th></tr></thead><tbody id="listeners"></tbody></table></div>
+    <h2 id="countries-label">Откуда приходят</h2>
+    <div class="table-wrap" role="region" aria-labelledby="countries-label" tabindex="0"><table><thead><tr><th scope="col">Страна</th><th scope="col">Посещений</th><th scope="col">Браузеров</th></tr></thead><tbody id="countries"></tbody></table></div>
+    <h2 id="daily-label">Посещения по дням (UTC)</h2>
+    <div class="table-wrap" role="region" aria-labelledby="daily-label" tabindex="0"><table><thead><tr><th scope="col">День</th><th scope="col">Посещений</th><th scope="col">Браузеров</th></tr></thead><tbody id="daily"></tbody></table></div>
+    <h2 id="visits-label">Последние посещения</h2>
+    <div class="table-wrap" role="region" aria-labelledby="visits-label" tabindex="0"><table><thead><tr><th scope="col">Когда</th><th scope="col">Слушатель</th><th scope="col">IP</th><th scope="col">Страна</th><th scope="col">Браузер</th></tr></thead><tbody id="visits"></tbody></table></div>
+    <p class="note">Статистика открыта для всех, включая IP и историю посещений.</p>
     <p class="note" id="notes"></p>
     <p class="note">Один слушатель здесь — один браузер с сохранённым cookie. Имя человека не определяется. Время учитывается по воспроизведению: паузы и ожидание загрузки исключены, одновременные вкладки не удваивают результат. При закрытии страницы или потере связи последние секунды могут не попасть в статистику. В период входят сеансы, начатые за выбранное время.</p>
   </main>

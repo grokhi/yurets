@@ -87,7 +87,7 @@ class PlexSource:
             "Accept": "application/json",
             "X-Plex-Token": self.settings.plex_token.get_secret_value(),
             "X-Plex-Client-Identifier": "yurets-fm-radio",
-            "X-Plex-Product": "Yurets FM",
+            "X-Plex-Product": "Yurets",
         }
 
     @staticmethod

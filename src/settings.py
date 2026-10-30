@@ -50,7 +50,6 @@ class Settings(BaseSettings):
     ffmpeg_path: str = "ffmpeg"
     plex_timeout_seconds: float = Field(default=30, gt=0)
     plex_max_track_bytes: int = Field(default=1024 * 1024 * 1024, gt=0)
-    admin_password: SecretStr = SecretStr("")
     trusted_proxy_cidrs: list[str] = Field(default_factory=list)
     geoip_database: str = str(
         Path(__file__).resolve().parents[1] / "geoip" / "dbip-country-lite.mmdb"

@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "yurets-fm"
 version = "0.1.0"
-description = "Minimalist internet radio prototype \"Юрец ФМ\""
+description = "Minimalist internet radio prototype \"Радио Юрец\""
 authors = ["You <you@example.com>"]
 readme = "README.md"
 packages = [{ include = "src" }]

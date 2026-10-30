@@ -45,7 +45,7 @@ def create_app(settings: Settings | None = None, *, source=None) -> FastAPI:
             analytics.close()
             database.close()
 
-    app = FastAPI(title="Юрец ФМ", lifespan=lifespan)
+    app = FastAPI(title="Радио Юрец", lifespan=lifespan)
     app.state.settings = settings
     app.include_router(router)
     static_dir = Path(__file__).resolve().parent / "static"

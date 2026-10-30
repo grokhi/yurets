@@ -1,31 +1,25 @@
 body {
   font-family: "Times New Roman", Times, serif;
+  font-size: 16px;
   background: PeachPuff;
   color: black;
-  margin: 200px 24px 24px 100px;
-  padding-bottom: 56px;
+  margin: 24px;
 }
 main { max-width: 1100px; }
-h1 { font-size: 32px; margin: 0 0 12px; }
-h2 { font-size: 19px; margin: 22px 0 8px; }
-.row { margin-bottom: 10px; }
-a { color: inherit; }
-button, select { font: inherit; color: inherit; padding: 5px 10px; }
+h1 { font-size: 28px; margin: 0 0 12px; }
+h2 { font-size: 20px; margin: 24px 0 8px; }
+p { margin: 10px 0; }
+button, select { font: inherit; }
 button { cursor: pointer; }
-audio { display: block; margin-top: 10px; max-width: 100%; }
-ol { padding-left: 24px; }
-li { margin: 6px 0; }
-p { margin: 8px 0; }
-.note { max-width: 650px; font-size: 14px; margin-top: 32px; }
-.album-slot { padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,.18); }
-.album-slot.active { font-weight: bold; }
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; margin: 12px 0 24px; text-align: left; }
-th, td { padding: 8px 16px 8px 0; border-bottom: 1px solid rgba(0,0,0,.2); vertical-align: top; }
-.metrics { display: flex; flex-wrap: wrap; gap: 18px 36px; margin: 24px 0; }
-.metric strong { display: block; font-size: 30px; }
-footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 0; background: PeachPuff; text-align: center; }
+audio { display: block; width: 320px; max-width: 100%; margin-top: 16px; }
+.table-wrap { max-width: 100%; overflow-x: auto; margin: 8px 0 16px; }
+.table-wrap:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+table { border-collapse: collapse; text-align: left; }
+th, td { border: 1px solid #777; padding: 4px 8px; vertical-align: top; white-space: nowrap; }
+tr.active { font-weight: bold; }
+.note { max-width: 750px; font-size: 14px; margin-top: 24px; }
+footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #777; font-size: 14px; }
 @media (max-width: 700px) {
-  body { margin: 50px 18px 18px; }
-  th, td { padding-right: 12px; }
+  body { margin: 12px; }
+  h1 { font-size: 26px; }
 }

@@ -41,9 +41,10 @@
         [duration(totals.listening_seconds), 'прослушано'], [totals.listening_now, 'слушают сейчас'],
       ];
       document.getElementById('metrics').replaceChildren(...metrics.map(([value, label]) => {
-        const metric = document.createElement('div'); metric.className = 'metric';
-        const number = document.createElement('strong'); number.textContent = value;
-        metric.append(number, document.createTextNode(label)); return metric;
+        const row = document.createElement('tr');
+        const heading = document.createElement('th'); heading.scope = 'row'; heading.textContent = label;
+        const cell = document.createElement('td'); cell.textContent = value;
+        row.append(heading, cell); return row;
       }));
       rows('listeners', data.listeners.map(s => [listener(s.visitor_id), duration(s.listening_seconds), s.sessions, country(s.country), s.ip, when(s.last_seen)]));
       rows('countries', data.countries.map(c => [country(c.country), c.visits, c.visitors]));
@@ -58,7 +59,7 @@
         document.getElementById('notes').append(document.createTextNode(' '), credit);
       }
       status.textContent = `Обновлено: ${new Date().toLocaleTimeString('ru-RU')}`;
-    } catch (_) { if (current === generation) status.textContent = 'Не удалось загрузить статистику. Проверьте вход и попробуйте снова.'; }
+    } catch (_) { if (current === generation) status.textContent = 'Не удалось загрузить статистику. Попробуйте снова.'; }
   }
   period.addEventListener('change', load);
   document.getElementById('refresh').addEventListener('click', load);

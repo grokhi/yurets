@@ -5,7 +5,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
-from pydantic import SecretStr
 
 from src.main import create_app
 from src.services.database import Database
@@ -34,13 +33,14 @@ class FakePlex:
 
 
 class APITests(unittest.IsolatedAsyncioTestCase):
-    async def test_auth_cookie_queue_and_no_telegram_startup(self):
+    async def test_public_stats_cookie_queue_and_no_telegram_startup(self):
         with tempfile.TemporaryDirectory() as temp:
+            legacy_env = Path(temp) / ".env"
+            legacy_env.write_text("YURETS_ADMIN_PASSWORD=legacy-password\n")
             settings = Settings(
-                _env_file=None,
+                _env_file=legacy_env,
                 _env_prefix="YURETS_TEST_",
                 data_dir=temp,
-                admin_password=SecretStr("test-password"),
                 plex_url="https://plex.example",
                 plex_library_id="1",
                 timezone="UTC",
@@ -71,12 +71,12 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                             (await client.get("/api/queue?count=0")).json()["tracks"], []
                         )
                         self.assertNotIn("part_key", str(first))
-                        self.assertEqual((await client.get("/api/analytics")).status_code, 401)
-                        self.assertEqual((await client.get("/stats")).status_code, 401)
+                        self.assertEqual((await client.get("/api/analytics")).status_code, 200)
+                        self.assertEqual((await client.get("/stats")).status_code, 200)
                         self.assertEqual((await client.get("/static/stats.html")).status_code, 404)
-                        auth = ("radio", "test-password")
-                        self.assertEqual((await client.get("/stats", auth=auth)).status_code, 200)
-                        stats = (await client.get("/api/analytics", auth=auth)).json()
+                        stats = (await client.get("/api/analytics")).json()
+                        self.assertNotIn("legacy-password", str(stats))
+                        self.assertNotIn("www-authenticate", (await client.get("/stats")).headers)
                         self.assertEqual(stats["totals"]["visits"], 2)
                         self.assertEqual(stats["totals"]["visitors"], 1)
                         self.assertEqual(stats["totals"]["listening_seconds"], 0)
@@ -84,7 +84,7 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                             (
                                 await client.get("/api/analytics", auth=("radio", "wrong"))
                             ).status_code,
-                            401,
+                            200,
                         )
                         start = await client.post(
                             "/api/listening", json={"action": "start", "position": 0}
@@ -102,7 +102,6 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                     _env_file=None,
                     _env_prefix="YURETS_TEST_",
                     data_dir=temp,
-                    admin_password="",
                 )
             )
             async with app.router.lifespan_context(app):
@@ -115,7 +114,8 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(health.json()["error"], "plex_not_configured")
                     self.assertEqual((await client.get("/stream")).status_code, 503)
                     self.assertEqual((await client.get("/api/schedule")).status_code, 503)
-                    self.assertEqual((await client.get("/api/analytics")).status_code, 503)
+                    self.assertEqual((await client.get("/api/analytics")).status_code, 200)
+                    self.assertEqual((await client.get("/stats")).status_code, 200)
 
     async def test_slow_subscriber_is_closed_without_corrupting_other_streams(self):
         with tempfile.TemporaryDirectory() as temp:

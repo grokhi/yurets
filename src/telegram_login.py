@@ -23,7 +23,7 @@ async def _amain() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m src.telegram_login",
         description=(
-            "Interactive Telegram login (user session) for Юрец ФМ. "
+            "Interactive Telegram login (user session) for Радио Юрец. "
             "Creates/updates Telethon .session file."
         ),
     )

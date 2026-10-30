@@ -1,33 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import secrets
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
 from src.models.now_playing import NowPlaying
 
 router = APIRouter()
-basic = HTTPBasic(auto_error=False)
-
-
-def require_admin(request: Request, credentials: HTTPBasicCredentials | None = Depends(basic)):
-    expected = request.app.state.settings.admin_password.get_secret_value()
-    if not expected:
-        raise HTTPException(503, "Статистика ещё не настроена")
-    if (
-        credentials is None
-        or credentials.username != "radio"
-        or not secrets.compare_digest(credentials.password.encode(), expected.encode())
-    ):
-        raise HTTPException(
-            401, "Требуется вход", headers={"WWW-Authenticate": 'Basic realm="Yurets statistics"'}
-        )
 
 
 @router.get("/health")
@@ -71,7 +54,7 @@ async def master(request: Request, queue_count: int = Query(default=5, ge=0, le=
 
 @router.get("/api/stats")
 async def stats(request: Request):
-    # Public technical stream counters only; visitor records are admin-only.
+    # Technical stream counters; visitor statistics are at /api/analytics.
     return request.app.state.streamer.diagnostics()
 
 
@@ -141,12 +124,12 @@ async def listening(request: Request, event: ListeningEvent):
     return response
 
 
-@router.get("/api/analytics", dependencies=[Depends(require_admin)])
+@router.get("/api/analytics")
 async def analytics(request: Request, days: int = Query(default=30, ge=1, le=365)):
     return await asyncio.to_thread(request.app.state.analytics.summary, days)
 
 
-@router.get("/stats", include_in_schema=False, dependencies=[Depends(require_admin)])
+@router.get("/stats", include_in_schema=False)
 async def statistics_page():
     return FileResponse(
         Path(__file__).resolve().parents[1] / "pages" / "stats.html", media_type="text/html"
