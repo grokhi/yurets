@@ -4,6 +4,7 @@ body {
   background: PeachPuff;
   color: black;
   margin: 24px;
+  padding-bottom: 56px;
 }
 main { max-width: 1100px; }
 h1 { font-size: 28px; margin: 0 0 12px; }
@@ -13,12 +14,14 @@ button, select { font: inherit; }
 button { cursor: pointer; }
 audio { display: block; width: 320px; max-width: 100%; margin-top: 16px; }
 .table-wrap { max-width: 100%; overflow-x: auto; margin: 8px 0 16px; }
-.table-wrap:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.now-playing { white-space: nowrap; overflow-x: auto; }
+#playback-status:empty { display: none; }
+.now-playing:focus-visible, .table-wrap:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 table { border-collapse: collapse; text-align: left; }
-th, td { border: 1px solid #777; padding: 4px 8px; vertical-align: top; white-space: nowrap; }
+th, td { border: 1px solid transparent; padding: 4px 8px; vertical-align: top; white-space: nowrap; }
 tr.active { font-weight: bold; }
 .note { max-width: 750px; font-size: 14px; margin-top: 24px; }
-footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #777; font-size: 14px; }
+footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 0; background: PeachPuff; text-align: center; }
 @media (max-width: 700px) {
   body { margin: 12px; }
   h1 { font-size: 26px; }

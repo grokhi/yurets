@@ -5,23 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Юрец</title>
   <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/radio.css?v=2">
-  <script src="/static/radio.js?v=2" defer></script>
+  <link rel="stylesheet" href="/static/radio.css?v=3">
+  <script src="/static/radio.js?v=3" defer></script>
 </head>
 <body>
   <main>
     <h1>Радио Юрец</h1>
     <p><a href="/stats">Статистика</a> · <a href="#schedule-label">Расписание</a></p>
     <audio id="player" src="/stream" controls preload="none" aria-label="Радио Юрец"></audio>
-    <p id="playback-status" role="status">Нажмите ▶ в плеере.</p>
-    <div class="table-wrap" role="region" aria-label="Сейчас в эфире" tabindex="0">
-      <table>
-        <tbody>
-          <tr><th scope="row">Сейчас</th><td id="now-playing" aria-live="polite">Загрузка…</td></tr>
-          <tr><th scope="row">Альбом</th><td id="album">—</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <p id="playback-status" role="status"></p>
+    <p class="now-playing" aria-live="polite" tabindex="0"><span id="now-playing">Загрузка…</span> · <span id="album">—</span></p>
     <section aria-labelledby="queue-label">
       <h2 id="queue-label">Далее в эфире</h2>
       <div class="table-wrap" role="region" aria-labelledby="queue-label" tabindex="0">
@@ -41,7 +34,6 @@
         </table>
       </div>
     </section>
-    <p class="note">Статистика открыта для всех: посещения, IP, страны и время прослушивания. Слушатели различаются по cookie браузера.</p>
   </main>
   <footer>Powered by sovbak yebak experience.</footer>
 </body>

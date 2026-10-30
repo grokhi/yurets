@@ -50,12 +50,12 @@
   player.addEventListener('ended', () => {
     stopCounting();
     player.load();
-    status.textContent = 'Эфир остановлен. Нажмите ▶ в плеере.';
+    status.textContent = 'Эфир остановлен.';
   });
   player.addEventListener('error', () => {
     stopCounting();
     player.load();
-    status.textContent = 'Эфир недоступен. Нажмите ▶ в плеере, чтобы повторить.';
+    status.textContent = 'Эфир временно недоступен.';
   });
   setInterval(() => { if (listening && !player.paused) event('heartbeat'); }, 10000);
   window.addEventListener('pagehide', () => {
