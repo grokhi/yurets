@@ -38,6 +38,56 @@ class PlexTests(unittest.IsolatedAsyncioTestCase):
             **kwargs,
         )
 
+    async def test_artwork_is_cached_and_uses_private_auth_header(self):
+        requests = []
+        image = b"\xff\xd8\xfftest-image"
+
+        def handler(request):
+            requests.append(request)
+            return httpx.Response(200, content=image, headers={"Content-Type": "image/jpeg"})
+
+        source = PlexSource(
+            self.settings(), httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        )
+        try:
+            self.assertEqual(await source.artwork("123"), (image, "image/jpeg"))
+            self.assertEqual(await source.artwork("123"), (image, "image/jpeg"))
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0].url.path, "/library/metadata/123/thumb")
+            self.assertEqual(requests[0].headers["X-Plex-Token"], "test-credential")
+            self.assertNotIn("test-credential", str(requests[0].url))
+        finally:
+            await source.close()
+
+    async def test_artwork_rejects_redirects_active_content_and_oversized_images(self):
+        for response in [
+            httpx.Response(302, headers={"Location": "https://other.example/image"}),
+            httpx.Response(200, content=b"<svg/>", headers={"Content-Type": "image/svg+xml"}),
+            httpx.Response(200, content=b"<html/>", headers={"Content-Type": "image/jpeg"}),
+            httpx.Response(
+                200, content=b"x" * (4 * 1024 * 1024 + 1), headers={"Content-Type": "image/jpeg"}
+            ),
+        ]:
+            calls = []
+
+            def handler(request):
+                calls.append(request)
+                return response
+
+            source = PlexSource(
+                self.settings(), httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            )
+            try:
+                with self.assertRaises(PlexError):
+                    await source.artwork("123")
+                self.assertEqual(len(calls), 1)
+                self.assertIsNone(source.cached_artwork("123"))
+                with self.assertRaises(PlexError):
+                    await source.artwork("../123")
+                self.assertEqual(len(calls), 1)
+            finally:
+                await source.close()
+
     async def test_pagination_auth_and_track_metadata(self):
         requests = []
 

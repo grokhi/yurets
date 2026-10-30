@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.models.now_playing import NowPlaying
+from src.streaming.sources.plex import PlexError
 
 router = APIRouter()
 
@@ -34,7 +35,39 @@ async def now_playing(request: Request):
         source="Plex",
         mime_type="audio/mpeg",
     )
-    return current.model_copy(update={"position_seconds": streamer.current_position_seconds()})
+    artwork_url = (
+        f"/api/artwork/{current.album_id}"
+        if current.album_id and current.album_id.isascii() and current.album_id.isdecimal()
+        else None
+    )
+    return current.model_copy(
+        update={
+            "position_seconds": streamer.current_position_seconds(),
+            "artwork_url": artwork_url,
+        }
+    )
+
+
+@router.get("/api/artwork/{album_id}")
+async def artwork(request: Request, album_id: str):
+    streamer = request.app.state.streamer
+    source = streamer.source
+    current = await streamer.now_playing.get()
+    # Only on-air albums (and recently cached covers), never arbitrary Plex items.
+    if not (current and current.album_id == album_id) and not source.cached_artwork(album_id):
+        raise HTTPException(404, "Обложка недоступна")
+    try:
+        data, mime = await source.artwork(album_id)
+    except PlexError:
+        raise HTTPException(404, "Обложка недоступна") from None
+    return Response(
+        data,
+        media_type=mime,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/api/queue")

@@ -53,7 +53,7 @@ def create_app(settings: Settings | None = None, *, source=None) -> FastAPI:
     @app.middleware("http")
     async def private_responses(request: Request, call_next):
         response = await call_next(request)
-        if not request.url.path.startswith("/static/"):
+        if not request.url.path.startswith(("/static/", "/api/artwork/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 

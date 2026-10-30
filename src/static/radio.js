@@ -33,6 +33,7 @@
         title: current.title || 'Радио Юрец',
         artist: current.artist || 'Радио Юрец',
         album: current.album || '',
+        artwork: current.artwork_url ? [{src: new URL(current.artwork_url, window.location.href).href}] : [],
       });
     } catch (_) { /* Metadata must never interrupt playback. */ }
   }

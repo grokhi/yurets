@@ -15,3 +15,4 @@ class NowPlaying(BaseModel):
     album: str | None = None
     album_id: str | None = None
     artist: str | None = None
+    artwork_url: str | None = None

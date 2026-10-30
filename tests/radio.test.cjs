@@ -49,7 +49,7 @@ async function setup({empty = false, media = false} = {}) {
   const mediaSession = {setActionHandler: (name, handler) => handlers.set(name, handler)};
   const context = {
     document: {getElementById: get, createElement: () => new Element()},
-    window: {addEventListener() {}}, navigator: {sendBeacon() {}, ...(media ? {mediaSession} : {})}, Blob, Date,
+    window: {addEventListener() {}, location: {href: 'https://radio.example/'}}, URL, navigator: {sendBeacon() {}, ...(media ? {mediaSession} : {})}, Blob, Date,
     MediaMetadata: class { constructor(values) { Object.assign(this, values); } },
     setInterval: (callback, ms) => intervals.set(ms, callback),
     fetch: async (url, options) => {
@@ -57,7 +57,7 @@ async function setup({empty = false, media = false} = {}) {
       if (url === '/api/listening') {
         const event = JSON.parse(options.body); events.push(event);
         result = {session_id: event.action === 'start' ? `s${events.length}` : event.session_id};
-      } else if (url === '/api/now-playing') result = {title: metadata, artist: 'Artist', album: 'Album'};
+      } else if (url === '/api/now-playing') result = {title: metadata, artist: 'Artist', album: 'Album', artwork_url: '/api/artwork/123'};
       else if (url.startsWith('/api/queue')) result = {tracks: empty ? [] : [{title: metadata, artist: 'Artist', album: 'Album'}]};
       else result = {date: '2026-10-29', timezone: 'UTC', slots: empty ? [] : [{start_at: '2026-10-29T00:00:00Z', end_at: '2026-10-29T01:00:00Z', artist: 'Artist', album: metadata, tracks: 3}]};
       return {ok: true, json: async () => result};
@@ -126,6 +126,7 @@ test('lock screen receives track metadata and its controls use the live player',
   assert.equal(ui.mediaSession.metadata.title, ui.metadata);
   assert.equal(ui.mediaSession.metadata.artist, 'Artist');
   assert.equal(ui.mediaSession.metadata.album, 'Album');
+  assert.equal(ui.mediaSession.metadata.artwork[0].src, 'https://radio.example/api/artwork/123');
   assert.equal(ui.handlers.get('seekto'), null);
   await ui.handlers.get('play')(); await settle();
   assert.equal(ui.mediaSession.playbackState, 'playing');

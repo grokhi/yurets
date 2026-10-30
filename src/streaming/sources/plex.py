@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import tempfile
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
@@ -46,6 +47,45 @@ class PlexSource:
         self._temporary = tempfile.TemporaryDirectory(prefix="yurets-plex-")
         self._cache: OrderedDict[str, Path] = OrderedDict()
         self._prepare_lock = asyncio.Lock()
+        self._artwork_lock = asyncio.Lock()
+        self._artwork_cache: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
+
+    def cached_artwork(self, album_id: str) -> tuple[bytes, str] | None:
+        return self._artwork_cache.get(album_id)
+
+    async def artwork(self, album_id: str) -> tuple[bytes, str]:
+        if not re.fullmatch(r"[0-9]+", album_id):
+            raise PlexError("plex_artwork_invalid")
+        async with self._artwork_lock:
+            if cached := self.cached_artwork(album_id):
+                self._artwork_cache.move_to_end(album_id)
+                return cached
+            try:
+                async with self.client.stream(
+                    "GET",
+                    self._url(f"/library/metadata/{album_id}/thumb"),
+                    headers={**self._headers(), "Accept": "image/jpeg, image/png"},
+                    follow_redirects=False,
+                ) as response:
+                    self._check(response)
+                    mime = response.headers.get("content-type", "").split(";")[0].lower()
+                    if mime not in {"image/jpeg", "image/png"}:
+                        raise PlexError("plex_artwork_invalid")
+                    data = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        data.extend(chunk)
+                        if len(data) > 4 * 1024 * 1024:
+                            raise PlexError("plex_artwork_too_large")
+                signature = b"\xff\xd8\xff" if mime == "image/jpeg" else b"\x89PNG\r\n\x1a\n"
+                if not data.startswith(signature):
+                    raise PlexError("plex_artwork_invalid")
+            except httpx.HTTPError as exc:
+                raise PlexError("plex_artwork_unavailable") from exc
+            result = (bytes(data), mime)
+            self._artwork_cache[album_id] = result
+            while len(self._artwork_cache) > 8:
+                self._artwork_cache.popitem(last=False)
+            return result
 
     def configuration_error(self) -> str | None:
         if not (

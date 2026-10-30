@@ -7,6 +7,7 @@ from unittest.mock import patch
 import httpx
 
 from src.main import create_app
+from src.models.now_playing import NowPlaying
 from src.services.database import Database
 from src.settings import Settings
 from src.streaming.streamer import Streamer
@@ -27,6 +28,12 @@ class FakePlex:
         while True:
             yield b"audio" * 100
             await asyncio.sleep(0.01)
+
+    def cached_artwork(self, album_id):
+        return None
+
+    async def artwork(self, album_id):
+        return b"\xff\xd8\xfftest", "image/jpeg"
 
     async def close(self):
         pass
@@ -94,6 +101,28 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                             "/api/listening", json={"action": "heartbeat", "position": -1}
                         )
                         self.assertEqual(invalid.status_code, 422)
+
+    async def test_cover_proxy_only_serves_on_air_album_without_auth_details(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = create_app(
+                Settings(_env_file=None, _env_prefix="YURETS_TEST_", data_dir=temp),
+                source=FakePlex(),
+            )
+            async with app.router.lifespan_context(app):
+                await asyncio.sleep(0.05)
+                await app.state.streamer.now_playing.set(
+                    NowPlaying(title="Song", source="Plex", mime_type="audio/mpeg", album_id="123")
+                )
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="https://test"
+                ) as client:
+                    metadata = (await client.get("/api/now-playing")).json()
+                    self.assertEqual(metadata["artwork_url"], "/api/artwork/123")
+                    cover = await client.get(metadata["artwork_url"])
+                    self.assertEqual(cover.status_code, 200)
+                    self.assertEqual(cover.headers["content-type"], "image/jpeg")
+                    self.assertEqual(cover.headers["cache-control"], "public, max-age=3600")
+                    self.assertEqual((await client.get("/api/artwork/999")).status_code, 404)
 
     async def test_missing_plex_has_no_local_or_telegram_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
