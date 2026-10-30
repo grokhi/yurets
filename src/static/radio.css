@@ -14,9 +14,9 @@ button, select { font: inherit; }
 button { cursor: pointer; }
 audio { display: block; width: 320px; max-width: 100%; margin-top: 16px; }
 .table-wrap { max-width: 100%; overflow-x: auto; margin: 8px 0 16px; }
-.now-playing { white-space: nowrap; overflow-x: auto; }
+.now-playing { white-space: normal; overflow-wrap: anywhere; }
 #playback-status:empty { display: none; }
-.now-playing:focus-visible, .table-wrap:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.table-wrap:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 table { border-collapse: collapse; text-align: left; }
 th, td { border: 1px solid transparent; padding: 4px 8px; vertical-align: top; white-space: nowrap; }
 tr.active { font-weight: bold; }
