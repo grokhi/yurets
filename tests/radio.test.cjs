@@ -33,7 +33,7 @@ class Element {
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-async function setup({empty = false, media = false} = {}) {
+async function setup({empty = false, media = false, timezone = 'UTC', start = '2026-10-29T00:00:00Z', end = '2026-10-29T01:00:00Z'} = {}) {
   const elements = new Map(); const intervals = new Map(); const events = [];
   const get = id => {
     assert.notEqual(id, 'listen', 'Playback must use the native player only');
@@ -47,8 +47,10 @@ async function setup({empty = false, media = false} = {}) {
   const metadata = '<img src=x onerror=alert(1)>';
   const handlers = new Map();
   const mediaSession = {setActionHandler: (name, handler) => handlers.set(name, handler)};
+  const zone = {value: timezone};
   const context = {
-    document: {getElementById: get, createElement: () => new Element()},
+    Intl: {DateTimeFormat: () => ({resolvedOptions: () => ({timeZone: zone.value})})},
+    document: {getElementById: get, createElement: () => new Element(), addEventListener() {}},
     window: {addEventListener() {}, location: {href: 'https://radio.example/'}}, URL, navigator: {sendBeacon() {}, ...(media ? {mediaSession} : {})}, Blob, Date,
     MediaMetadata: class { constructor(values) { Object.assign(this, values); } },
     setInterval: (callback, ms) => intervals.set(ms, callback),
@@ -59,13 +61,13 @@ async function setup({empty = false, media = false} = {}) {
         result = {session_id: event.action === 'start' ? `s${events.length}` : event.session_id};
       } else if (url === '/api/now-playing') result = {title: metadata, artist: 'Artist', album: 'Album', artwork_url: '/api/artwork/123'};
       else if (url.startsWith('/api/queue')) result = {tracks: empty ? [] : [{title: metadata, artist: 'Artist', album: 'Album'}]};
-      else result = {date: '2026-10-29', timezone: 'UTC', slots: empty ? [] : [{start_at: '2026-10-29T00:00:00Z', end_at: '2026-10-29T01:00:00Z', artist: 'Artist', album: metadata, tracks: 3}]};
+      else result = {date: '2026-10-29', timezone: 'UTC', slots: empty ? [] : [{start_at: start, end_at: end, artist: 'Artist', album: metadata, tracks: 3}]};
       return {ok: true, json: async () => result};
     },
   };
   vm.runInNewContext(fs.readFileSync('src/static/radio.js', 'utf8'), context);
   await settle();
-  return {player: get('player'), events, intervals, get, metadata, mediaSession, handlers};
+  return {player: get('player'), events, intervals, get, metadata, mediaSession, handlers, zone};
 }
 
 test('opening the site does not play or count listening; table metadata is plain text', async () => {
@@ -136,4 +138,21 @@ test('lock screen receives track metadata and its controls use the live player',
   ui.mediaSession.metadata = null;
   await ui.intervals.get(5000)();
   assert.equal(ui.mediaSession.metadata.title, ui.metadata);
+});
+
+
+test('schedule follows device timezone and local date across timezone changes', async () => {
+  const ui = await setup({timezone: 'America/Los_Angeles'});
+  assert.match(ui.get('schedule-date').textContent, /28\.10\.2026.*America\/Los_Angeles/);
+  assert.equal(ui.get('schedule').children[0].children[0].textContent, '28.10.2026, 17:00–18:00');
+  ui.zone.value = 'Asia/Almaty';
+  ui.intervals.get(1000)();
+  assert.match(ui.get('schedule-date').textContent, /29\.10\.2026.*Asia\/Almaty/);
+  assert.equal(ui.get('schedule').children[0].children[0].textContent, '29.10.2026, 05:00–06:00');
+});
+
+
+test('local schedule includes both dates when an album crosses midnight', async () => {
+  const ui = await setup({timezone: 'Asia/Almaty', start: '2026-10-29T18:30:00Z', end: '2026-10-29T19:30:00Z'});
+  assert.equal(ui.get('schedule').children[0].children[0].textContent, '29.10.2026, 23:30–30.10.2026, 00:30');
 });

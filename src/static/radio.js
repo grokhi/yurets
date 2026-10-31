@@ -129,22 +129,44 @@
       if (!data.tracks.length) message(queue, 'Очередь пока пуста', 3);
     } catch (_) { message(queue, 'Очередь временно недоступна', 3); }
   }
-  async function schedule() {
+  let scheduleData = null;
+  let displayedTimeZone = null;
+  function renderSchedule(data) {
     const container = document.getElementById('schedule');
-    try {
-      const data = await json('/api/schedule');
-      document.getElementById('schedule-date').textContent = `${data.date} · ${data.timezone}`;
-      const format = iso => new Date(iso).toLocaleTimeString('ru-RU', {
-        timeZone: data.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-      });
-      container.replaceChildren(...data.slots.map(slot => {
-        const tr = row([`${format(slot.start_at)}–${format(slot.end_at)}`, slot.artist, slot.album, slot.tracks]);
-        if (Date.now() >= Date.parse(slot.start_at) && Date.now() < Date.parse(slot.end_at)) tr.classList.add('active');
-        return tr;
-      }));
-      if (!data.slots.length) message(container, 'Расписание пока пусто', 4);
-    } catch (_) { message(container, 'Расписание временно недоступно', 4); }
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    displayedTimeZone = timeZone;
+    const date = iso => new Date(iso).toLocaleDateString('ru-RU', {timeZone});
+    const format = iso => new Date(iso).toLocaleTimeString('ru-RU', {
+      timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    });
+    const first = data.slots[0], last = data.slots[data.slots.length - 1];
+    const dates = first ? [...new Set([date(first.start_at), date(last.end_at)])].join(' — ') : '';
+    document.getElementById('schedule-date').textContent = [dates, timeZone].filter(Boolean).join(' · ');
+    container.replaceChildren(...data.slots.map(slot => {
+      const startDate = date(slot.start_at), endDate = date(slot.end_at);
+      const end = startDate === endDate ? format(slot.end_at) : `${endDate}, ${format(slot.end_at)}`;
+      const tr = row([`${startDate}, ${format(slot.start_at)}–${end}`, slot.artist, slot.album, slot.tracks]);
+      if (Date.now() >= Date.parse(slot.start_at) && Date.now() < Date.parse(slot.end_at)) tr.classList.add('active');
+      return tr;
+    }));
+    if (!data.slots.length) message(container, 'Расписание пока пусто', 4);
   }
+  async function schedule() {
+    try {
+      scheduleData = await json('/api/schedule');
+      renderSchedule(scheduleData);
+    } catch (_) { message(document.getElementById('schedule'), 'Расписание временно недоступно', 4); }
+  }
+  function refreshTimezone() {
+    if (scheduleData && Intl.DateTimeFormat().resolvedOptions().timeZone !== displayedTimeZone) {
+      renderSchedule(scheduleData);
+    }
+  }
+  window.addEventListener('focus', refreshTimezone);
+  window.addEventListener('pageshow', refreshTimezone);
+  document.addEventListener('visibilitychange', refreshTimezone);
+  setInterval(refreshTimezone, 1000);
+  window.addEventListener('focus', schedule);
   poll(); schedule();
   setInterval(poll, 5000);
   setInterval(schedule, 60000);
