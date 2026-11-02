@@ -101,17 +101,35 @@
     ], {type: 'application/json'}));
   });
 
+  const tooltip = document.getElementById('cell-tooltip');
+  function hideTooltip() { tooltip.hidden = true; }
+  function showTooltip(cell) {
+    hideTooltip();
+    if (cell.scrollWidth <= cell.clientWidth) return;
+    tooltip.textContent = cell.textContent;
+    tooltip.style.left = '12px';
+    tooltip.style.top = '0px';
+    tooltip.hidden = false;
+    const cellBox = cell.getBoundingClientRect();
+    const tipBox = tooltip.getBoundingClientRect();
+    tooltip.style.left = `${Math.max(12, Math.min(cellBox.left, window.innerWidth - tipBox.width - 12))}px`;
+    const below = cellBox.bottom + 6;
+    tooltip.style.top = `${below + tipBox.height <= window.innerHeight - 12
+      ? below : Math.max(12, cellBox.top - tipBox.height - 6)}px`;
+  }
+  window.addEventListener('scroll', hideTooltip, true);
+  window.addEventListener('resize', hideTooltip);
+  window.addEventListener('blur', hideTooltip);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') hideTooltip(); });
+
   function row(values, readable = []) {
     const tr = document.createElement('tr');
     for (const [index, value] of values.entries()) {
       const td = document.createElement('td');
       td.textContent = String(value ?? '—');
       if (readable.includes(index) && value) {
-        td.title = String(value);
-        td.tabIndex = 0;
-        // Native hover hint; focus reveals the full text for touch and keyboard.
-        td.addEventListener('click', () => td.focus());
-        td.addEventListener('keydown', event => { if (event.key === 'Escape') td.blur(); });
+        td.addEventListener('mouseenter', () => showTooltip(td));
+        td.addEventListener('mouseleave', hideTooltip);
       }
       tr.append(td);
     }
@@ -135,11 +153,13 @@
       const data = await json('/api/queue?count=5');
       const signature = JSON.stringify(data.tracks);
       if (signature !== queueSignature) {
+        hideTooltip();
         queue.replaceChildren(...data.tracks.map(track => row([track.artist, track.title, track.album], [0, 1, 2])));
         if (!data.tracks.length) message(queue, 'Очередь пока пуста', 3);
         queueSignature = signature;
       }
     } catch (_) {
+      hideTooltip();
       queueSignature = null;
       message(queue, 'Очередь временно недоступна', 3);
     }
@@ -153,6 +173,7 @@
     return {timeZone, date, key: `${timeZone}|${date}`};
   }
   function renderSchedule(data) {
+    hideTooltip();
     const container = document.getElementById('schedule');
     const timeZone = data.timezone;
     const format = iso => new Date(iso).toLocaleTimeString('ru-RU', {
@@ -174,6 +195,7 @@
     const request = ++scheduleRequest;
     pendingDay = day.key;
     if (requestedDay !== day.key) {
+      hideTooltip();
       document.getElementById('schedule-date').textContent = `${day.date} · ${day.timeZone}`;
       message(document.getElementById('schedule'), 'Загрузка…', 4);
     }
