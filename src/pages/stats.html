@@ -6,7 +6,7 @@
   <title>Статистика — Юрец</title>
   <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml">
   <link rel="stylesheet" href="/static/radio.css?v=4">
-  <script src="/static/stats.js?v=3" defer></script>
+  <script src="/static/stats.js?v=4" defer></script>
 </head>
 <body>
   <main>
@@ -15,6 +15,9 @@
     <p><label for="period">За последние </label><select id="period"><option value="1">сутки</option><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option></select> <button id="refresh" type="button">Обновить</button></p>
     <p id="status" role="status">Загрузка…</p>
     <div class="table-wrap" role="region" aria-label="Общая статистика" tabindex="0"><table><tbody id="metrics"></tbody></table></div>
+    <h2 id="observation-label">Наблюдение за автоматизацией</h2>
+    <p id="observation-note"></p>
+    <div class="table-wrap" role="region" aria-labelledby="observation-label" tabindex="0"><table><thead><tr><th scope="col">Результат Turnstile</th><th scope="col">Запросов страниц</th></tr></thead><tbody id="observation"></tbody></table></div>
     <h2 id="listeners-label">Самые преданные слушатели</h2>
     <div class="table-wrap" role="region" aria-labelledby="listeners-label" tabindex="0"><table><thead><tr><th scope="col">Слушатель</th><th scope="col">В эфире</th><th scope="col">Сеансов</th><th scope="col">Страна</th><th scope="col">Последний IP</th><th scope="col">Был здесь</th></tr></thead><tbody id="listeners"></tbody></table></div>
     <h2 id="countries-label">Откуда приходят</h2>
@@ -22,7 +25,7 @@
     <h2 id="daily-label">Посещения по дням (UTC)</h2>
     <div class="table-wrap" role="region" aria-labelledby="daily-label" tabindex="0"><table><thead><tr><th scope="col">День</th><th scope="col">Посещений</th><th scope="col">Браузеров</th></tr></thead><tbody id="daily"></tbody></table></div>
     <h2 id="visits-label">Последние посещения</h2>
-    <div class="table-wrap" role="region" aria-labelledby="visits-label" tabindex="0"><table><thead><tr><th scope="col">Когда</th><th scope="col">Слушатель</th><th scope="col">IP</th><th scope="col">Страна</th><th scope="col">Браузер</th></tr></thead><tbody id="visits"></tbody></table></div>
+    <div class="table-wrap" role="region" aria-labelledby="visits-label" tabindex="0"><table><thead><tr><th scope="col">Когда</th><th scope="col">Слушатель</th><th scope="col">IP</th><th scope="col">Страна</th><th scope="col">Браузер</th><th scope="col">Turnstile</th></tr></thead><tbody id="visits"></tbody></table></div>
     <p class="note">Статистика открыта для всех, включая IP и историю посещений.</p>
     <p class="note" id="notes"></p>
     <p class="note">Известные роботы исключены. Новые посещения учитываются по открытию страницы в браузере; запуск музыки не обязателен. Полностью отличить человека от бота невозможно. Один слушатель здесь — один браузер с сохранённым cookie. Имя человека не определяется. Время учитывается по воспроизведению: паузы и ожидание загрузки исключены, одновременные вкладки не удваивают результат. При закрытии страницы или потере связи последние секунды могут не попасть в статистику. В период входят сеансы, начатые за выбранное время.</p>

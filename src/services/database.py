@@ -38,6 +38,10 @@ class Database:
                     at REAL NOT NULL, ip TEXT NOT NULL, country TEXT, user_agent TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS visits_at ON visits(at);
+                CREATE TABLE IF NOT EXISTS visit_observations (
+                    visit_id INTEGER PRIMARY KEY REFERENCES visits(id) ON DELETE CASCADE,
+                    status TEXT NOT NULL, reason TEXT, at REAL NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS listening_sessions (
                     id TEXT PRIMARY KEY, visitor_id TEXT NOT NULL REFERENCES visitors(id),
                     started_at REAL NOT NULL, last_seen REAL NOT NULL, ended_at REAL,

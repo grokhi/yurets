@@ -148,6 +148,20 @@ async def confirm_visit(request: Request, event: VisitConfirmation):
     return {"counted": confirmed}
 
 
+class ObservationEvent(BaseModel):
+    token: str = Field(max_length=100)
+    response: str | None = Field(default=None, max_length=2048)
+
+
+@router.post("/api/observation")
+async def observe(request: Request, event: ObservationEvent):
+    visit_id = await asyncio.to_thread(request.app.state.analytics.verified_visit_id, event.token)
+    if visit_id is None:
+        raise HTTPException(400, "Неизвестное посещение")
+    status = await request.app.state.observation.record(visit_id, event.token, event.response)
+    return {"mode": "observe_only", "status": status}
+
+
 class ListeningEvent(BaseModel):
     action: Literal["start", "heartbeat", "stop"]
     session_id: str | None = Field(default=None, max_length=64)

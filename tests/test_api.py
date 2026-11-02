@@ -79,6 +79,22 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual((await client.get("/")).status_code, 200)
                         self.assertEqual(client.cookies.get("yurets_listener"), listener_cookie)
                         self.assertEqual(home.headers["cache-control"], "no-store")
+                        self.assertIn('name="turnstile-site-key" content=""', home.text)
+                        page_token = re.search(r'name="visit-token" content="([^"]+)"', home.text)[
+                            1
+                        ]
+                        observation = await client.post(
+                            "/api/observation", json={"token": page_token}
+                        )
+                        self.assertEqual(
+                            observation.json(), {"mode": "observe_only", "status": "disabled"}
+                        )
+                        self.assertEqual(
+                            (
+                                await client.post("/api/observation", json={"token": "forged"})
+                            ).status_code,
+                            400,
+                        )
                         self.assertEqual((await client.get("/health")).status_code, 200)
                         first = (await client.get("/api/queue")).json()
                         self.assertEqual(first, (await client.get("/api/queue")).json())

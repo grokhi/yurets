@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html as html_utils
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import router, set_listener_cookie, visitor_context
 from src.services.analytics import Analytics
+from src.services.observation import Observation
 from src.services.database import Database
 from src.settings import Settings
 from src.streaming.sources.plex import PlexError
@@ -23,6 +25,7 @@ def create_app(settings: Settings | None = None, *, source=None) -> FastAPI:
     async def lifespan(app: FastAPI):
         database = Database(Path(settings.data_dir) / "radio.sqlite3")
         analytics = Analytics(settings, database)
+        app.state.observation = Observation(settings, database)
         streamer = Streamer(settings, database, source)
         app.state.database, app.state.analytics, app.state.streamer = database, analytics, streamer
 
@@ -42,6 +45,7 @@ def create_app(settings: Settings | None = None, *, source=None) -> FastAPI:
             except asyncio.CancelledError:
                 pass
             await streamer.shutdown()
+            await app.state.observation.close()
             analytics.close()
             database.close()
 
@@ -82,6 +86,8 @@ def create_app(settings: Settings | None = None, *, source=None) -> FastAPI:
         )
         token = app.state.analytics.visit_token(visit_id)
         html = (static_dir / "index.html").read_text().replace("__VISIT_TOKEN__", token)
+        site_key = settings.turnstile_site_key if app.state.observation.enabled else ""
+        html = html.replace("__TURNSTILE_SITE_KEY__", html_utils.escape(site_key, quote=True))
         response = HTMLResponse(html)
         set_listener_cookie(request, response, visitor)
         return response

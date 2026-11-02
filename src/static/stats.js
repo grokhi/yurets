@@ -3,6 +3,8 @@
   const status = document.getElementById('status');
   const duration = seconds => `${Math.floor(seconds / 3600)} ч ${Math.floor(seconds % 3600 / 60)} мин`;
   const when = stamp => new Date(stamp * 1000).toLocaleString('ru-RU');
+  const observationLabel = value => ({passed: 'Пройдена', not_passed: 'Не пройдена',
+    unavailable: 'Недоступна', pending: 'Нет завершённого результата', not_checked: 'Не проверялось'}[value] || 'Не проверялось');
   const listener = id => `Слушатель ${id.slice(0, 8)}`;
   const country = code => {
     if (!code || code === 'unknown') return 'Не определена';
@@ -49,9 +51,17 @@
       rows('listeners', data.listeners.map(s => [listener(s.visitor_id), duration(s.listening_seconds), s.sessions, country(s.country), s.ip, when(s.last_seen)]));
       rows('countries', data.countries.map(c => [country(c.country), c.visits, c.visitors]));
       rows('daily', data.daily.map(d => [d.day, d.visits, d.visitors]));
-      rows('visits', data.visits.map(v => [when(v.at), listener(v.visitor_id), v.ip, country(v.country), v.user_agent]));
+      rows('visits', data.visits.map(v => [when(v.at), listener(v.visitor_id), v.ip, country(v.country), v.user_agent, observationLabel(v.observation_status)]));
       document.getElementById('notes').textContent = `История хранится ${data.retention_days} дней. ` +
         (data.geoip_available ? 'Страна определяется приблизительно по IP.' : 'Определение стран ещё не подключено.');
+      const observation = data.observation;
+      if (observation) {
+        rows('observation', Object.entries(observation.counts).map(([state, count]) => [observationLabel(state), count]));
+        document.getElementById('observation-note').textContent =
+          (observation.enabled ? 'Turnstile подключён. ' : 'Turnstile ещё не подключён. ') +
+          'Только наблюдение: результат не влияет на счётчики и доступ к эфиру. ' +
+          'Здесь все запросы страниц за период, включая ранее отсеянные. Не пройдена ≠ бот; пройдена ≠ доказанный человек.';
+      }
       const filter = data.traffic_filter;
       if (filter) {
         document.getElementById('notes').append(document.createTextNode(

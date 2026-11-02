@@ -34,6 +34,8 @@ jobs:
         id: release
         env:
           SSHPASS: ${{ secrets.YURETS_SSH_PASSWORD }}
+          YURETS_TURNSTILE_SITE_KEY: ${{ secrets.YURETS_TURNSTILE_SITE_KEY }}
+          YURETS_TURNSTILE_SECRET_KEY: ${{ secrets.YURETS_TURNSTILE_SECRET_KEY }}
         run: |
           set -euo pipefail
           if [ -z "$SSHPASS" ]; then
@@ -43,6 +45,7 @@ jobs:
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
+          python3 scripts/send-turnstile-config.py
           # First connection records the host key; later runs reject a changed key.
           if sshpass -e ssh -F /dev/null -T \
             -o StrictHostKeyChecking=accept-new \

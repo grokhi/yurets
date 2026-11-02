@@ -111,6 +111,19 @@ class Analytics:
         signature = hmac.new(self._key, f"visit:{visit_id}".encode(), hashlib.sha256).hexdigest()
         return f"{visit_id}.{signature}"
 
+    def verified_visit_id(self, token: str):
+        if not re.fullmatch(r"[0-9]{1,20}\.[0-9a-f]{64}", token):
+            return None
+        visit_id = token.split(".")[0]
+        if not hmac.compare_digest(token, self.visit_token(visit_id)):
+            return None
+        with self.database.transaction() as db:
+            return (
+                int(visit_id)
+                if db.execute("SELECT 1 FROM visits WHERE id=?", (visit_id,)).fetchone()
+                else None
+            )
+
     def confirm_visit(self, token: str, user_agent: str, *, now: float | None = None):
         if known_bot(user_agent) or not re.fullmatch(r"[0-9]{1,20}\.[0-9a-f]{64}", token):
             return False
@@ -241,8 +254,10 @@ class Analytics:
             visits = [
                 dict(row)
                 for row in db.execute(
-                    """SELECT visitor_id,at,ip,country,user_agent
-                FROM audience_visits WHERE at >= ? ORDER BY at DESC LIMIT 100""",
+                    """SELECT v.visitor_id,v.at,v.ip,v.country,v.user_agent,
+                    COALESCE(o.status,'not_checked') AS observation_status
+                FROM audience_visits v LEFT JOIN visit_observations o ON o.visit_id=v.id
+                WHERE v.at >= ? ORDER BY v.at DESC LIMIT 100""",
                     (cutoff,),
                 )
             ]
@@ -265,7 +280,24 @@ class Analytics:
                     (cutoff,),
                 ).fetchone()
             )
+            observation_counts = {
+                row["status"]: row["count"]
+                for row in db.execute(
+                    """SELECT COALESCE(o.status,'not_checked') AS status, COUNT(*) AS count
+                FROM visits v LEFT JOIN visit_observations o ON o.visit_id=v.id
+                WHERE v.at >= ? GROUP BY COALESCE(o.status,'not_checked')""",
+                    (cutoff,),
+                )
+            }
         return {
+            "observation": {
+                "mode": "observe_only",
+                "enabled": bool(
+                    self.settings.turnstile_site_key
+                    and self.settings.turnstile_secret_key.get_secret_value()
+                ),
+                "counts": observation_counts,
+            },
             "traffic_filter": {k: v or 0 for k, v in traffic.items()},
             "days": days,
             "totals": totals,
