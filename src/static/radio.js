@@ -101,11 +101,18 @@
     ], {type: 'application/json'}));
   });
 
-  function row(values) {
+  function row(values, readable = []) {
     const tr = document.createElement('tr');
-    for (const value of values) {
+    for (const [index, value] of values.entries()) {
       const td = document.createElement('td');
       td.textContent = String(value ?? '—');
+      if (readable.includes(index) && value) {
+        td.title = String(value);
+        td.tabIndex = 0;
+        // Native hover hint; focus reveals the full text for touch and keyboard.
+        td.addEventListener('click', () => td.focus());
+        td.addEventListener('keydown', event => { if (event.key === 'Escape') td.blur(); });
+      }
       tr.append(td);
     }
     return tr;
@@ -115,6 +122,7 @@
     tr.firstElementChild.colSpan = columns;
     body.replaceChildren(tr);
   }
+  let queueSignature = null;
   async function poll() {
     try {
       const current = await json('/api/now-playing');
@@ -125,9 +133,16 @@
     const queue = document.getElementById('queue');
     try {
       const data = await json('/api/queue?count=5');
-      queue.replaceChildren(...data.tracks.map(track => row([track.artist, track.title, track.album])));
-      if (!data.tracks.length) message(queue, 'Очередь пока пуста', 3);
-    } catch (_) { message(queue, 'Очередь временно недоступна', 3); }
+      const signature = JSON.stringify(data.tracks);
+      if (signature !== queueSignature) {
+        queue.replaceChildren(...data.tracks.map(track => row([track.artist, track.title, track.album], [0, 1, 2])));
+        if (!data.tracks.length) message(queue, 'Очередь пока пуста', 3);
+        queueSignature = signature;
+      }
+    } catch (_) {
+      queueSignature = null;
+      message(queue, 'Очередь временно недоступна', 3);
+    }
   }
   let requestedDay = null;
   let pendingDay = null;
@@ -147,7 +162,7 @@
     container.replaceChildren(...data.slots.map(slot => {
       const start = Date.parse(slot.start_at) === Date.parse(data.start_at) ? '00:00' : format(slot.start_at);
       const end = Date.parse(slot.end_at) === Date.parse(data.end_at) ? '24:00' : format(slot.end_at);
-      const tr = row([`${start}–${end}`, slot.artist, slot.album, slot.tracks]);
+      const tr = row([`${start}–${end}`, slot.artist, slot.album, slot.tracks], [1, 2]);
       if (Date.now() >= Date.parse(slot.start_at) && Date.now() < Date.parse(slot.end_at)) tr.classList.add('active');
       return tr;
     }));

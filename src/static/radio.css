@@ -7,6 +7,18 @@ body {
   padding-bottom: 56px;
 }
 main { max-width: 1100px; }
+.radio-page { margin-top: 0; padding-top: calc(20vh + 32px); }
+.radio-page::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 20vh;
+  background: #fff;
+}
+.radio-page section { margin-top: 48px; }
+.radio-page section h2 { margin: 0 0 16px; }
+.radio-page audio { margin-top: 28px; }
+.radio-page .now-playing { margin-top: 20px; }
 h1 { font-size: 28px; margin: 0 0 12px; }
 h2 { font-size: 20px; margin: 24px 0 8px; }
 p { margin: 10px 0; }
@@ -19,10 +31,21 @@ audio { display: block; width: 320px; max-width: 100%; margin-top: 16px; }
 .table-wrap:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 table { border-collapse: collapse; text-align: left; }
 th, td { border: 1px solid transparent; padding: 4px 8px; vertical-align: top; white-space: nowrap; }
+.radio-table { table-layout: fixed; width: 880px; }
+.radio-table .queue-artist { width: 240px; }
+.radio-table .queue-title, .radio-table .queue-album { width: 320px; }
+.radio-table .schedule-time { width: 180px; }
+.radio-table .schedule-artist { width: 240px; }
+.radio-table .schedule-album { width: 380px; }
+.radio-table .schedule-tracks { width: 80px; }
+.radio-table th, .radio-table td { padding-top: 8px; padding-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
+.radio-table td[tabindex] { cursor: help; }
+.radio-table td[tabindex]:focus { white-space: normal; overflow-wrap: anywhere; outline: 1px dotted currentColor; outline-offset: -2px; }
 tr.active { font-weight: bold; }
 .note { max-width: 750px; font-size: 14px; margin-top: 24px; }
 footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 0; background: PeachPuff; text-align: center; }
 @media (max-width: 700px) {
   body { margin: 12px; }
+  .radio-page { margin-top: 0; }
   h1 { font-size: 26px; }
 }
