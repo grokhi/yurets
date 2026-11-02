@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -92,9 +93,14 @@ async def stats(request: Request):
 
 
 @router.get("/api/schedule")
-async def schedule(request: Request):
+async def schedule(request: Request, timezone: str | None = Query(default=None, max_length=100)):
+    if timezone is not None:
+        try:
+            ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise HTTPException(422, "Неизвестный часовой пояс") from None
     streamer = request.app.state.streamer
-    return await streamer.program.schedule(streamer.now())
+    return await streamer.program.schedule(streamer.now(), timezone=timezone)
 
 
 @router.get("/stream")

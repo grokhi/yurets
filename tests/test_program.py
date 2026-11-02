@@ -100,3 +100,56 @@ class ProgramTests(unittest.IsolatedAsyncioTestCase):
         self.settings.plex_album_ids = ["missing"]
         with self.assertRaisesRegex(PlexError, "plex_scheduled_album_missing"):
             await DailyProgram(self.settings, self.source, self.db).entries(self.now)
+
+    async def test_local_day_clips_albums_and_preserves_shared_playback(self):
+        self.source.tracks = [track("1", duration=17000), track("2", number=2, duration=17000)]
+        for days in (2, 1, 0):
+            await self.program.entries(self.now - timedelta(days=days))
+        current = await self.program.current(self.now)
+        queue = await self.program.upcoming(self.now, 5)
+        for name in (
+            "Asia/Tokyo",
+            "America/Los_Angeles",
+            "Asia/Kathmandu",
+            "Pacific/Kiritimati",
+            "Pacific/Honolulu",
+        ):
+            with self.subTest(zone=name):
+                result = await self.program.schedule(self.now, timezone=name)
+                begin, end = (datetime.fromisoformat(result[key]) for key in ("start_at", "end_at"))
+                self.assertEqual(begin.astimezone(ZoneInfo(name)).hour, 0)
+                self.assertEqual(begin.astimezone(ZoneInfo(name)).minute, 0)
+                self.assertEqual(end.astimezone(ZoneInfo(name)).hour, 0)
+                self.assertEqual(
+                    result["date"], self.now.astimezone(ZoneInfo(name)).date().isoformat()
+                )
+                slots = result["slots"]
+                self.assertEqual(slots[0]["start_at"], result["start_at"])
+                self.assertEqual(slots[-1]["end_at"], result["end_at"])
+                for slot in slots:
+                    self.assertLess(
+                        datetime.fromisoformat(slot["start_at"]),
+                        datetime.fromisoformat(slot["end_at"]),
+                    )
+                    self.assertGreaterEqual(datetime.fromisoformat(slot["start_at"]), begin)
+                    self.assertLessEqual(datetime.fromisoformat(slot["end_at"]), end)
+                self.assertTrue(all(a["end_at"] == b["start_at"] for a, b in zip(slots, slots[1:])))
+                self.assertEqual(await self.program.current(self.now), current)
+                self.assertEqual(await self.program.upcoming(self.now, 5), queue)
+
+    async def test_viewer_dst_day_covers_23_or_25_hours(self):
+        for month, day, hours in ((3, 8, 23), (11, 1, 25)):
+            now = datetime(2026, month, day, 12, tzinfo=ZoneInfo("America/New_York"))
+            await self.program.entries(now - timedelta(days=1))
+            result = await self.program.schedule(now, timezone="America/New_York")
+            begin, end = (datetime.fromisoformat(result[key]) for key in ("start_at", "end_at"))
+            self.assertEqual((end - begin).total_seconds(), hours * 3600)
+            self.assertEqual(result["slots"][0]["start_at"], result["start_at"])
+            self.assertEqual(result["slots"][-1]["end_at"], result["end_at"])
+
+    async def test_viewing_missing_history_does_not_generate_a_different_past(self):
+        original = await self.program.entries(self.now)
+        result = await self.program.schedule(self.now, timezone="Asia/Tokyo")
+        self.assertGreater(result["slots"][0]["start_at"], result["start_at"])
+        self.assertIsNone(self.program._load(self.now.date() - timedelta(days=1)))
+        self.assertEqual(await self.program.entries(self.now), original)

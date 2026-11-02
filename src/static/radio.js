@@ -129,44 +129,59 @@
       if (!data.tracks.length) message(queue, 'Очередь пока пуста', 3);
     } catch (_) { message(queue, 'Очередь временно недоступна', 3); }
   }
-  let scheduleData = null;
-  let displayedTimeZone = null;
+  let requestedDay = null;
+  let pendingDay = null;
+  let scheduleRequest = 0;
+  function deviceDay() {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const date = new Date().toLocaleDateString('ru-RU', {timeZone});
+    return {timeZone, date, key: `${timeZone}|${date}`};
+  }
   function renderSchedule(data) {
     const container = document.getElementById('schedule');
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    displayedTimeZone = timeZone;
-    const date = iso => new Date(iso).toLocaleDateString('ru-RU', {timeZone});
+    const timeZone = data.timezone;
     const format = iso => new Date(iso).toLocaleTimeString('ru-RU', {
       timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
     });
-    const first = data.slots[0], last = data.slots[data.slots.length - 1];
-    const dates = first ? [...new Set([date(first.start_at), date(last.end_at)])].join(' — ') : '';
-    document.getElementById('schedule-date').textContent = [dates, timeZone].filter(Boolean).join(' · ');
+    document.getElementById('schedule-date').textContent = `${data.date.split('-').reverse().join('.')} · ${timeZone}`;
     container.replaceChildren(...data.slots.map(slot => {
-      const startDate = date(slot.start_at), endDate = date(slot.end_at);
-      const end = startDate === endDate ? format(slot.end_at) : `${endDate}, ${format(slot.end_at)}`;
-      const tr = row([`${startDate}, ${format(slot.start_at)}–${end}`, slot.artist, slot.album, slot.tracks]);
+      const start = Date.parse(slot.start_at) === Date.parse(data.start_at) ? '00:00' : format(slot.start_at);
+      const end = Date.parse(slot.end_at) === Date.parse(data.end_at) ? '24:00' : format(slot.end_at);
+      const tr = row([`${start}–${end}`, slot.artist, slot.album, slot.tracks]);
       if (Date.now() >= Date.parse(slot.start_at) && Date.now() < Date.parse(slot.end_at)) tr.classList.add('active');
       return tr;
     }));
     if (!data.slots.length) message(container, 'Расписание пока пусто', 4);
   }
   async function schedule() {
+    const day = deviceDay();
+    if (pendingDay === day.key) return;
+    const request = ++scheduleRequest;
+    pendingDay = day.key;
+    if (requestedDay !== day.key) {
+      document.getElementById('schedule-date').textContent = `${day.date} · ${day.timeZone}`;
+      message(document.getElementById('schedule'), 'Загрузка…', 4);
+    }
+    requestedDay = day.key;
     try {
-      scheduleData = await json('/api/schedule');
-      renderSchedule(scheduleData);
-    } catch (_) { message(document.getElementById('schedule'), 'Расписание временно недоступно', 4); }
-  }
-  function refreshTimezone() {
-    if (scheduleData && Intl.DateTimeFormat().resolvedOptions().timeZone !== displayedTimeZone) {
-      renderSchedule(scheduleData);
+      const data = await json(`/api/schedule?timezone=${encodeURIComponent(day.timeZone)}`);
+      // A slow response from the previous timezone/day must not replace the new one.
+      if (request === scheduleRequest && day.key === deviceDay().key) renderSchedule(data);
+    } catch (_) {
+      if (request === scheduleRequest && day.key === deviceDay().key) {
+        message(document.getElementById('schedule'), 'Расписание временно недоступно', 4);
+      }
+    } finally {
+      if (request === scheduleRequest) pendingDay = null;
     }
   }
-  window.addEventListener('focus', refreshTimezone);
+  function refreshTimezone() {
+    if (deviceDay().key !== requestedDay) return schedule();
+  }
+  window.addEventListener('focus', schedule);
   window.addEventListener('pageshow', refreshTimezone);
   document.addEventListener('visibilitychange', refreshTimezone);
   setInterval(refreshTimezone, 1000);
-  window.addEventListener('focus', schedule);
   poll(); schedule();
   setInterval(poll, 5000);
   setInterval(schedule, 60000);

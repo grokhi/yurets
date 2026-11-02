@@ -33,7 +33,7 @@ class Element {
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-async function setup({empty = false, media = false, timezone = 'UTC', start = '2026-10-29T00:00:00Z', end = '2026-10-29T01:00:00Z'} = {}) {
+async function setup({empty = false, media = false, timezone = 'UTC', start = '2026-10-29T00:00:00Z', end = '2026-10-30T00:00:00Z'} = {}) {
   const elements = new Map(); const intervals = new Map(); const events = [];
   const get = id => {
     assert.notEqual(id, 'listen', 'Playback must use the native player only');
@@ -48,10 +48,17 @@ async function setup({empty = false, media = false, timezone = 'UTC', start = '2
   const handlers = new Map();
   const mediaSession = {setActionHandler: (name, handler) => handlers.set(name, handler)};
   const zone = {value: timezone};
+  const clock = {value: Date.parse('2026-10-29T12:00:00Z')};
+  const requests = [], pending = [];
+  const network = {hold: false};
+  class ClockDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [clock.value])); }
+    static now() { return clock.value; }
+  }
   const context = {
     Intl: {DateTimeFormat: () => ({resolvedOptions: () => ({timeZone: zone.value})})},
     document: {getElementById: get, createElement: () => new Element(), addEventListener() {}},
-    window: {addEventListener() {}, location: {href: 'https://radio.example/'}}, URL, navigator: {sendBeacon() {}, ...(media ? {mediaSession} : {})}, Blob, Date,
+    window: {addEventListener() {}, location: {href: 'https://radio.example/'}}, URL, navigator: {sendBeacon() {}, ...(media ? {mediaSession} : {})}, Blob, Date: ClockDate,
     MediaMetadata: class { constructor(values) { Object.assign(this, values); } },
     setInterval: (callback, ms) => intervals.set(ms, callback),
     fetch: async (url, options) => {
@@ -61,13 +68,28 @@ async function setup({empty = false, media = false, timezone = 'UTC', start = '2
         result = {session_id: event.action === 'start' ? `s${events.length}` : event.session_id};
       } else if (url === '/api/now-playing') result = {title: metadata, artist: 'Artist', album: 'Album', artwork_url: '/api/artwork/123'};
       else if (url.startsWith('/api/queue')) result = {tracks: empty ? [] : [{title: metadata, artist: 'Artist', album: 'Album'}]};
-      else result = {date: '2026-10-29', timezone: 'UTC', slots: empty ? [] : [{start_at: start, end_at: end, artist: 'Artist', album: metadata, tracks: 3}]};
+      else {
+        requests.push(url);
+        const tz = new URL(url, 'https://radio.example').searchParams.get('timezone');
+        const parts = new Intl.DateTimeFormat('en-CA', {timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(new Date(clock.value));
+        const value = name => parts.find(part => part.type === name).value;
+        const date = `${value('year')}-${value('month')}-${value('day')}`;
+        const offset = {'UTC': 0, 'America/Los_Angeles': -7, 'Asia/Almaty': 5}[tz];
+        const begin = Date.parse(`${date}T00:00:00Z`) - offset * 3600000;
+        const finish = begin + 86400000;
+        result = {date, timezone: tz, start_at: new Date(begin).toISOString(), end_at: new Date(finish).toISOString(),
+          slots: empty || Date.parse(end) <= begin || Date.parse(start) >= finish ? [] : [{
+            start_at: new Date(Math.max(begin, Date.parse(start))).toISOString(),
+            end_at: new Date(Math.min(finish, Date.parse(end))).toISOString(), artist: 'Artist', album: metadata, tracks: 3,
+          }]};
+        if (network.hold) await new Promise(resolve => pending.push(resolve));
+      }
       return {ok: true, json: async () => result};
     },
   };
   vm.runInNewContext(fs.readFileSync('src/static/radio.js', 'utf8'), context);
   await settle();
-  return {player: get('player'), events, intervals, get, metadata, mediaSession, handlers, zone};
+  return {player: get('player'), events, intervals, get, metadata, mediaSession, handlers, zone, clock, requests, network, pending};
 }
 
 test('opening the site does not play or count listening; table metadata is plain text', async () => {
@@ -141,18 +163,39 @@ test('lock screen receives track metadata and its controls use the live player',
 });
 
 
-test('schedule follows device timezone and local date across timezone changes', async () => {
+test('schedule requests local day again when device timezone changes', async () => {
   const ui = await setup({timezone: 'America/Los_Angeles'});
-  assert.match(ui.get('schedule-date').textContent, /28\.10\.2026.*America\/Los_Angeles/);
-  assert.equal(ui.get('schedule').children[0].children[0].textContent, '28.10.2026, 17:00–18:00');
+  assert.match(ui.get('schedule-date').textContent, /^29\.10\.2026 · America\/Los_Angeles$/);
+  assert.equal(ui.get('schedule').children[0].children[0].textContent, '00:00–17:00');
+  assert.equal(ui.requests.at(-1), '/api/schedule?timezone=America%2FLos_Angeles');
   ui.zone.value = 'Asia/Almaty';
-  ui.intervals.get(1000)();
-  assert.match(ui.get('schedule-date').textContent, /29\.10\.2026.*Asia\/Almaty/);
-  assert.equal(ui.get('schedule').children[0].children[0].textContent, '29.10.2026, 05:00–06:00');
+  await ui.intervals.get(1000)();
+  assert.equal(ui.requests.at(-1), '/api/schedule?timezone=Asia%2FAlmaty');
+  assert.equal(ui.get('schedule-date').textContent, '29.10.2026 · Asia/Almaty');
+  assert.equal(ui.get('schedule').children[0].children[0].textContent, '05:00–24:00');
 });
 
-
-test('local schedule includes both dates when an album crosses midnight', async () => {
+test('album crossing local midnight ends at 24:00 with only one date in heading', async () => {
   const ui = await setup({timezone: 'Asia/Almaty', start: '2026-10-29T18:30:00Z', end: '2026-10-29T19:30:00Z'});
-  assert.equal(ui.get('schedule').children[0].children[0].textContent, '29.10.2026, 23:30–30.10.2026, 00:30');
+  assert.equal(ui.get('schedule').children[0].children[0].textContent, '23:30–24:00');
+  assert.equal(ui.get('schedule-date').textContent, '29.10.2026 · Asia/Almaty');
+  ui.clock.value = Date.parse('2026-10-29T19:00:01Z');
+  await ui.intervals.get(1000)();
+  assert.equal(ui.get('schedule-date').textContent, '30.10.2026 · Asia/Almaty');
+  assert.equal(ui.get('schedule').children[0].children[0].textContent, '00:00–00:30');
+  assert.equal(ui.requests.length, 2);
+});
+
+test('slow response for an old timezone cannot replace current day', async () => {
+  const ui = await setup();
+  ui.network.hold = true;
+  ui.zone.value = 'America/Los_Angeles';
+  const old = ui.intervals.get(1000)();
+  ui.zone.value = 'Asia/Almaty';
+  const current = ui.intervals.get(1000)();
+  ui.pending[1](); await current;
+  assert.equal(ui.get('schedule-date').textContent, '29.10.2026 · Asia/Almaty');
+  ui.pending[0](); await old;
+  assert.equal(ui.get('schedule-date').textContent, '29.10.2026 · Asia/Almaty');
+  assert.equal(ui.get('schedule').children[0].children[0].textContent, '05:00–24:00');
 });

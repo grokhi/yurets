@@ -135,11 +135,33 @@ class DailyProgram:
             result = [e for e in entries if e.start > now.timestamp()]
         return result[:count]
 
-    async def schedule(self, now: datetime):
-        entries = await self.entries(now)
+    async def schedule(self, now: datetime, *, timezone: str | None = None):
+        zone = ZoneInfo(timezone or self.settings.timezone)
+        day = now.astimezone(zone).date()
+        begin = datetime.combine(day, time(), tzinfo=zone)
+        finish = datetime.combine(day + timedelta(days=1), time(), tzinfo=zone)
+        start, end = begin.timestamp(), finish.timestamp()
+        broadcast_day = now.astimezone(self.timezone).date()
+        first_day = begin.astimezone(self.timezone).date() - timedelta(days=1)
+        last_day = datetime.fromtimestamp(end - 0.001, self.timezone).date()
+        async with self._lock:
+            # Establish today's canonical plan before any viewer requests future days.
+            await self._ensure(broadcast_day)
+            future = broadcast_day + timedelta(days=1)
+            while future <= last_day:
+                await self._ensure(future)
+                future += timedelta(days=1)
+            entries = []
+            cursor = first_day
+            while cursor <= last_day:
+                # Historical gaps must not invent broadcasts or shift a saved plan.
+                entries.extend(self._load(cursor) or [])
+                cursor += timedelta(days=1)
         blocks: dict[str, dict] = {}
+        utc = ZoneInfo("UTC")
         for entry in entries:
-            public = entry.public()
+            if entry.end <= start or entry.start >= end:
+                continue
             if entry.block not in blocks:
                 blocks[entry.block] = {
                     "album_id": entry.track.album_id,
@@ -147,12 +169,16 @@ class DailyProgram:
                     "artist": entry.track.artist,
                     "source": "Plex",
                     "tracks": 0,
-                    "start_at": public["start_at"],
+                    "start_at": datetime.fromtimestamp(max(start, entry.start), utc).isoformat(),
                 }
-            blocks[entry.block]["end_at"] = public["end_at"]
+            blocks[entry.block]["end_at"] = datetime.fromtimestamp(
+                min(end, entry.end), utc
+            ).isoformat()
             blocks[entry.block]["tracks"] += 1
         return {
-            "date": now.astimezone(self.timezone).date().isoformat(),
-            "timezone": self.settings.timezone,
+            "date": day.isoformat(),
+            "timezone": zone.key,
+            "start_at": begin.astimezone(utc).isoformat(),
+            "end_at": finish.astimezone(utc).isoformat(),
             "slots": list(blocks.values()),
         }

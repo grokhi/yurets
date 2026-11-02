@@ -96,6 +96,17 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                             400,
                         )
                         self.assertEqual((await client.get("/health")).status_code, 200)
+                        schedule = await client.get("/api/schedule?timezone=Asia%2FKathmandu")
+                        self.assertEqual(schedule.status_code, 200)
+                        self.assertEqual(schedule.json()["timezone"], "Asia/Kathmandu")
+                        self.assertEqual(
+                            (await client.get("/api/schedule?timezone=Invalid/Zone")).status_code,
+                            422,
+                        )
+                        self.assertEqual(
+                            (await client.get("/api/schedule?timezone=/etc/passwd")).status_code,
+                            422,
+                        )
                         first = (await client.get("/api/queue")).json()
                         self.assertEqual(first, (await client.get("/api/queue")).json())
                         self.assertEqual(
