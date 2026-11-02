@@ -134,6 +134,20 @@ def set_listener_cookie(request: Request, response: Response, visitor: str):
     )
 
 
+class VisitConfirmation(BaseModel):
+    token: str = Field(max_length=100)
+
+
+@router.post("/api/visit")
+async def confirm_visit(request: Request, event: VisitConfirmation):
+    confirmed = await asyncio.to_thread(
+        request.app.state.analytics.confirm_visit,
+        event.token,
+        request.headers.get("user-agent", ""),
+    )
+    return {"counted": confirmed}
+
+
 class ListeningEvent(BaseModel):
     action: Literal["start", "heartbeat", "stop"]
     session_id: str | None = Field(default=None, max_length=64)
@@ -151,6 +165,7 @@ async def listening(request: Request, event: ListeningEvent):
         event.position,
         ip,
         country,
+        user_agent=request.headers.get("user-agent", ""),
     )
     response = JSONResponse({"session_id": session_id})
     set_listener_cookie(request, response, visitor)

@@ -6,6 +6,7 @@ from pathlib import Path
 from src.services.analytics import Analytics
 from src.services.database import Database
 from src.settings import Settings
+from src.services.traffic import known_bot
 
 
 class AnalyticsTests(unittest.TestCase):
@@ -38,6 +39,82 @@ class AnalyticsTests(unittest.TestCase):
 
     def summary(self, elapsed=0):
         return self.analytics.summary(30, now=self.now + elapsed)
+
+    def test_pending_visits_are_confirmed_once_and_bad_tokens_rejected(self):
+        visit = self.analytics.visit(
+            self.visitor, "8.8.8.8", "US", "", traffic_state="pending", now=self.now
+        )
+        self.assertEqual(self.summary()["totals"]["visits"], 1)
+        self.assertFalse(self.analytics.confirm_visit(visit + "." + "0" * 64, ""))
+        token = self.analytics.visit_token(visit)
+        self.assertTrue(self.analytics.confirm_visit(token, "", now=self.now))
+        self.assertTrue(self.analytics.confirm_visit(token, "", now=self.now))
+        self.assertEqual(self.summary()["totals"]["visits"], 2)
+
+    def test_historical_bots_are_filtered_without_deleting_history(self):
+        bot = self.analytics.identify(None)
+        self.analytics.visit(bot, "1.1.1.1", "AU", "Mozilla/5.0 Googlebot/2.1", now=self.now)
+        # Simulate a legacy record whose bot status was not classified on insertion.
+        with self.db.transaction() as db:
+            db.execute("UPDATE visits SET traffic_state='legacy' WHERE visitor_id=?", (bot,))
+        session = self.event("start", visitor=bot)
+        self.event("stop", session, position=10, elapsed=10, visitor=bot)
+        result = self.summary(10)
+        self.assertEqual(result["totals"]["visits"], 1)
+        self.assertEqual(result["totals"]["sessions"], 0)
+        self.assertEqual(result["traffic_filter"]["bots"], 1)
+        self.assertEqual(result["traffic_filter"]["legacy"], 1)
+        self.assertEqual(result["countries"], [{"country": "US", "visits": 1, "visitors": 1}])
+        with self.db.transaction() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM visits").fetchone()[0], 2)
+        restored = Database(Path(self.temp.name) / "radio.sqlite3")
+        restored.close()
+
+    def test_scanners_observed_on_site_are_excluded_without_blocking_real_browsers(self):
+        for agent in [
+            "Mozilla/5.0 (compatible; Infrawatch/1.0)",
+            "Mozilla/5.0 (compatible; CensysInspect/1.1)",
+            "Mozilla/5.0 (compatible; CyberConvoyScout/1.0)",
+            "Mozilla/5.0 zgrab/0.x",
+            "Googlebot/2.1",
+            "curl/8.0",
+        ]:
+            self.assertTrue(known_bot(agent), agent)
+        for agent in [
+            "",
+            "Mozilla/5.0 (Linux; Android 10; CUBOT) Chrome/156.0 Mobile Safari/537.36",
+            "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Safari/604.1",
+            "Mozilla/5.0 (Macintosh) Claude/4.29.0 Chrome/152.0 Safari/537.36",
+        ]:
+            self.assertFalse(known_bot(agent), agent)
+
+    def test_existing_database_can_be_migrated_without_losing_history(self):
+        import sqlite3
+
+        legacy_path = Path(self.temp.name) / "legacy.sqlite3"
+        with sqlite3.connect(legacy_path) as db:
+            db.executescript("""
+                CREATE TABLE visitors (id TEXT PRIMARY KEY, first_seen REAL NOT NULL,
+                    last_seen REAL NOT NULL, credited_until REAL NOT NULL DEFAULT 0);
+                CREATE TABLE visits (id INTEGER PRIMARY KEY, visitor_id TEXT NOT NULL,
+                    at REAL NOT NULL, ip TEXT NOT NULL, country TEXT, user_agent TEXT NOT NULL);
+                CREATE TABLE listening_sessions (id TEXT PRIMARY KEY, visitor_id TEXT NOT NULL,
+                    started_at REAL NOT NULL, last_seen REAL NOT NULL, ended_at REAL,
+                    position REAL NOT NULL, seconds REAL NOT NULL DEFAULT 0, ip TEXT NOT NULL, country TEXT);
+                INSERT INTO visitors VALUES ('old', 1, 1, 0);
+                INSERT INTO visits VALUES (1, 'old', 1, '8.8.8.8', 'US', 'Safari');
+            """)
+        migrated = Database(legacy_path)
+        try:
+            with migrated.transaction() as db:
+                self.assertEqual(
+                    db.execute("SELECT traffic_state FROM visits").fetchone()[0], "legacy"
+                )
+                self.assertEqual(
+                    db.execute("SELECT COUNT(*) FROM audience_visits").fetchone()[0], 1
+                )
+        finally:
+            migrated.close()
 
     def test_visits_do_not_count_as_listening(self):
         totals = self.summary()["totals"]

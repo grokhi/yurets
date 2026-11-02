@@ -52,6 +52,13 @@
       rows('visits', data.visits.map(v => [when(v.at), listener(v.visitor_id), v.ip, country(v.country), v.user_agent]));
       document.getElementById('notes').textContent = `История хранится ${data.retention_days} дней. ` +
         (data.geoip_available ? 'Страна определяется приблизительно по IP.' : 'Определение стран ещё не подключено.');
+      const filter = data.traffic_filter;
+      if (filter) {
+        document.getElementById('notes').append(document.createTextNode(
+          ` Исключены известные роботы: ${filter.bots}. Без подтверждения просмотра: ${filter.unconfirmed}. ` +
+          `Старые посещения без проверки браузера: ${filter.legacy} (сохранены, кроме известных роботов).`
+        ));
+      }
       if (data.geoip_provider === 'DB-IP Lite') {
         const credit = document.createElement('a');
         credit.href = 'https://db-ip.com';

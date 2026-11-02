@@ -13,6 +13,7 @@ import maxminddb
 
 from src.services.database import Database
 from src.settings import Settings
+from src.services.traffic import known_bot
 
 
 class Analytics:
@@ -82,6 +83,7 @@ class Analytics:
         user_agent: str,
         *,
         page_view: bool = True,
+        traffic_state: str = "legacy",
         now: float | None = None,
     ):
         now = time.time() if now is None else now
@@ -92,10 +94,39 @@ class Analytics:
                 (visitor, now, now),
             )
             if page_view:
-                db.execute(
-                    "INSERT INTO visits(visitor_id,at,ip,country,user_agent) VALUES (?,?,?,?,?)",
-                    (visitor, now, ip, country, user_agent[:512]),
+                cursor = db.execute(
+                    "INSERT INTO visits(visitor_id,at,ip,country,user_agent,traffic_state) VALUES (?,?,?,?,?,?)",
+                    (
+                        visitor,
+                        now,
+                        ip,
+                        country,
+                        user_agent[:512],
+                        "bot" if known_bot(user_agent) else traffic_state,
+                    ),
                 )
+                return str(cursor.lastrowid)
+
+    def visit_token(self, visit_id: str) -> str:
+        signature = hmac.new(self._key, f"visit:{visit_id}".encode(), hashlib.sha256).hexdigest()
+        return f"{visit_id}.{signature}"
+
+    def confirm_visit(self, token: str, user_agent: str, *, now: float | None = None):
+        if known_bot(user_agent) or not re.fullmatch(r"[0-9]{1,20}\.[0-9a-f]{64}", token):
+            return False
+        visit_id = token.split(".")[0]
+        if not hmac.compare_digest(token, self.visit_token(visit_id)):
+            return False
+        with self.database.transaction() as db:
+            visit = db.execute("SELECT * FROM visits WHERE id=?", (visit_id,)).fetchone()
+            if not visit or known_bot(visit["user_agent"]) or visit["traffic_state"] == "bot":
+                return False
+            if visit["traffic_state"] == "pending":
+                at = time.time() if now is None else now
+                db.execute(
+                    "UPDATE visits SET traffic_state='confirmed', at=? WHERE id=?", (at, visit_id)
+                )
+            return True
 
     def listening(
         self,
@@ -106,8 +137,11 @@ class Analytics:
         ip: str,
         country: str | None,
         *,
+        user_agent: str = "",
         now: float | None = None,
     ):
+        if known_bot(user_agent):
+            return None
         now = time.time() if now is None else now
         self.visit(visitor, ip, country, "", page_view=False, now=now)
         with self.database.transaction() as db:
@@ -115,8 +149,8 @@ class Analytics:
                 session_id = secrets.token_hex(16)
                 db.execute(
                     """INSERT INTO listening_sessions
-                    (id,visitor_id,started_at,last_seen,position,ip,country) VALUES (?,?,?,?,?,?,?)""",
-                    (session_id, visitor, now, now, position, ip, country),
+                    (id,visitor_id,started_at,last_seen,position,ip,country,user_agent) VALUES (?,?,?,?,?,?,?,?)""",
+                    (session_id, visitor, now, now, position, ip, country, user_agent[:512]),
                 )
                 return session_id
             session = db.execute(
@@ -163,7 +197,7 @@ class Analytics:
             totals = dict(
                 db.execute(
                     """SELECT COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS visitors
-                                        FROM visits WHERE at >= ?""",
+                                        FROM audience_visits WHERE at >= ?""",
                     (cutoff,),
                 ).fetchone()
             )
@@ -171,7 +205,7 @@ class Analytics:
                 dict(
                     db.execute(
                         """SELECT COUNT(*) AS sessions,
-                COALESCE(SUM(seconds), 0) AS listening_seconds FROM listening_sessions
+                COALESCE(SUM(seconds), 0) AS listening_seconds FROM audience_sessions
                 WHERE started_at >= ?""",
                         (cutoff,),
                     ).fetchone()
@@ -179,14 +213,14 @@ class Analytics:
             )
             totals["listening_now"] = db.execute(
                 """SELECT COUNT(DISTINCT visitor_id)
-                FROM listening_sessions WHERE ended_at IS NULL AND last_seen > ?""",
+                FROM audience_sessions WHERE ended_at IS NULL AND last_seen > ?""",
                 (now - 20,),
             ).fetchone()[0]
             countries = [
                 dict(row)
                 for row in db.execute(
                     """SELECT COALESCE(country,'unknown') AS country,
-                COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS visitors FROM visits
+                COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS visitors FROM audience_visits
                 WHERE at >= ? GROUP BY country ORDER BY visits DESC""",
                     (cutoff,),
                 )
@@ -197,9 +231,9 @@ class Analytics:
                     """SELECT s.visitor_id,
                 COUNT(*) AS sessions, SUM(s.seconds) AS listening_seconds,
                 MAX(s.last_seen) AS last_seen,
-                (SELECT v.ip FROM visits v WHERE v.visitor_id=s.visitor_id ORDER BY v.at DESC LIMIT 1) AS ip,
-                (SELECT v.country FROM visits v WHERE v.visitor_id=s.visitor_id ORDER BY v.at DESC LIMIT 1) AS country
-                FROM listening_sessions s WHERE s.started_at >= ?
+                (SELECT v.ip FROM audience_visits v WHERE v.visitor_id=s.visitor_id ORDER BY v.at DESC LIMIT 1) AS ip,
+                (SELECT v.country FROM audience_visits v WHERE v.visitor_id=s.visitor_id ORDER BY v.at DESC LIMIT 1) AS country
+                FROM audience_sessions s WHERE s.started_at >= ?
                 GROUP BY s.visitor_id HAVING SUM(s.seconds)>0 ORDER BY listening_seconds DESC LIMIT 50""",
                     (cutoff,),
                 )
@@ -208,7 +242,7 @@ class Analytics:
                 dict(row)
                 for row in db.execute(
                     """SELECT visitor_id,at,ip,country,user_agent
-                FROM visits WHERE at >= ? ORDER BY at DESC LIMIT 100""",
+                FROM audience_visits WHERE at >= ? ORDER BY at DESC LIMIT 100""",
                     (cutoff,),
                 )
             ]
@@ -217,11 +251,22 @@ class Analytics:
                 for row in db.execute(
                     """SELECT date(at,'unixepoch') AS day,
                 COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS visitors
-                FROM visits WHERE at >= ? GROUP BY day ORDER BY day""",
+                FROM audience_visits WHERE at >= ? GROUP BY day ORDER BY day""",
                     (cutoff,),
                 )
             ]
+            traffic = dict(
+                db.execute(
+                    """SELECT
+                SUM(CASE WHEN known_bot(user_agent) OR traffic_state='bot' THEN 1 ELSE 0 END) AS bots,
+                SUM(CASE WHEN traffic_state='pending' AND NOT known_bot(user_agent) THEN 1 ELSE 0 END) AS unconfirmed,
+                SUM(CASE WHEN traffic_state='legacy' AND NOT known_bot(user_agent) THEN 1 ELSE 0 END) AS legacy
+                FROM visits WHERE at >= ?""",
+                    (cutoff,),
+                ).fetchone()
+            )
         return {
+            "traffic_filter": {k: v or 0 for k, v in traffic.items()},
             "days": days,
             "totals": totals,
             "countries": countries,

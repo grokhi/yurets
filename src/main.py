@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import router, set_listener_cookie, visitor_context
@@ -66,10 +66,23 @@ def create_app(settings: Settings | None = None, *, source=None) -> FastAPI:
     @app.get("/", include_in_schema=False)
     async def index(request: Request):
         visitor, ip, country = visitor_context(request)
-        await asyncio.to_thread(
-            app.state.analytics.visit, visitor, ip, country, request.headers.get("user-agent", "")
+        # Browser navigation with a user gesture also covers JS-disabled browsers.
+        navigation = (
+            request.headers.get("sec-fetch-mode") == "navigate"
+            and request.headers.get("sec-fetch-dest") == "document"
+            and request.headers.get("sec-fetch-user") == "?1"
         )
-        response = FileResponse(static_dir / "index.html", media_type="text/html")
+        visit_id = await asyncio.to_thread(
+            app.state.analytics.visit,
+            visitor,
+            ip,
+            country,
+            request.headers.get("user-agent", ""),
+            traffic_state="navigation" if navigation else "pending",
+        )
+        token = app.state.analytics.visit_token(visit_id)
+        html = (static_dir / "index.html").read_text().replace("__VISIT_TOKEN__", token)
+        response = HTMLResponse(html)
         set_listener_cookie(request, response, visitor)
         return response
 

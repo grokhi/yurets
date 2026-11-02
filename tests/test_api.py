@@ -1,4 +1,5 @@
 import asyncio
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,7 +60,14 @@ class APITests(unittest.IsolatedAsyncioTestCase):
             ):
                 async with app.router.lifespan_context(app):
                     async with httpx.AsyncClient(
-                        transport=httpx.ASGITransport(app=app), base_url="https://test"
+                        transport=httpx.ASGITransport(app=app),
+                        base_url="https://test",
+                        headers={
+                            "User-Agent": "Mozilla/5.0 Firefox/140.0",
+                            "Sec-Fetch-Mode": "navigate",
+                            "Sec-Fetch-Dest": "document",
+                            "Sec-Fetch-User": "?1",
+                        },
                     ) as client:
                         await asyncio.sleep(0.05)
                         home = await client.get("/")
@@ -123,6 +131,45 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(cover.headers["content-type"], "image/jpeg")
                     self.assertEqual(cover.headers["cache-control"], "public, max-age=3600")
                     self.assertEqual((await client.get("/api/artwork/999")).status_code, 404)
+
+    async def test_page_confirmation_without_cookies_and_known_bot_exclusion(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = create_app(Settings(_env_file=None, _env_prefix="YURETS_TEST_", data_dir=temp))
+            async with app.router.lifespan_context(app):
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="https://test"
+                ) as client:
+
+                    def token(response):
+                        return re.search(r'name="visit-token" content="([^"]+)"', response.text)[1]
+
+                    browser = {
+                        "User-Agent": "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Safari/604.1"
+                    }
+                    home = await client.get("/", headers=browser)
+                    self.assertEqual(
+                        (await client.get("/api/analytics")).json()["totals"]["visits"], 0
+                    )
+                    client.cookies.clear()
+                    for _ in range(2):
+                        result = await client.post(
+                            "/api/visit", json={"token": token(home)}, headers=browser
+                        )
+                        self.assertTrue(result.json()["counted"])
+                    bot = {"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)"}
+                    robot = await client.get("/", headers=bot)
+                    result = await client.post(
+                        "/api/visit", json={"token": token(robot)}, headers=browser
+                    )
+                    self.assertFalse(result.json()["counted"])
+                    result = await client.post(
+                        "/api/listening", json={"action": "start", "position": 0}, headers=bot
+                    )
+                    self.assertIsNone(result.json()["session_id"])
+                    stats = (await client.get("/api/analytics")).json()
+                    self.assertEqual(stats["totals"]["visits"], 1)
+                    self.assertEqual(stats["traffic_filter"]["bots"], 1)
+                    self.assertEqual(stats["traffic_filter"]["unconfirmed"], 0)
 
     async def test_missing_plex_has_no_local_or_telegram_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
