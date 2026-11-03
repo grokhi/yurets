@@ -144,7 +144,7 @@
   async function poll() {
     try {
       const current = await json('/api/now-playing');
-      document.getElementById('now-playing').textContent = [current.artist, current.title].filter(Boolean).join(' — ');
+      document.getElementById('now-playing').textContent = [current.artist, current.title].filter(Boolean).join(' · ');
       document.getElementById('album').textContent = current.album || '—';
       updateMedia(current);
     } catch (_) { document.getElementById('now-playing').textContent = 'Эфир временно недоступен'; }
