@@ -24,7 +24,9 @@ jobs:
             sudo apt-get update -qq
             sudo apt-get install -y sshpass
           fi
-          sshpass -e ssh -F /dev/null -T -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 root@147.45.100.176 'docker exec -i yurets-backend-1 python -' < scripts/inspect-radio.py > radio-report.txt
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          sshpass -e ssh -F /dev/null -T -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 root@147.45.100.176 'docker exec -i yurets-backend-1 python -' < scripts/inspect-radio.py > radio-report.txt
           python3 - <<'PY'
           from pathlib import Path
           report=Path('radio-report.txt').read_text()
