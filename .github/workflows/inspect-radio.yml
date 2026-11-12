@@ -15,6 +15,8 @@ jobs:
         with:
           path: ~/.ssh/known_hosts
           key: timeweb-6355545-known-hosts-v1
+      - name: Probe Plex from an independent network
+        run: python3 scripts/probe-public-plex.py
       - name: Inspect storage and Plex connectivity
         env:
           SSHPASS: ${{ secrets.YURETS_SSH_PASSWORD }}
